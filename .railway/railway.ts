@@ -10,7 +10,7 @@ export default defineRailway(() => {
   const orthanc = service('orthanc', {
     source: image('orthancteam/orthanc:26.8.2-full'),
     replicas: { 'us-west2': 1 },
-    deploy: { restartPolicyType: 'ALWAYS', sleepApplication: false },
+    deploy: { restartPolicyType: 'ALWAYS' },
     volumeMounts: { '/var/lib/orthanc/db': orthancData },
     env: {
       ORTHANC__AUTHENTICATION_ENABLED: preserve(),
@@ -37,7 +37,6 @@ export default defineRailway(() => {
     deploy: {
       startCommand: 'python load.py',
       restartPolicyType: 'NEVER',
-      sleepApplication: false,
     },
     env: {
       ORTHANC_SEED_PASSWORD: preserve(),
@@ -53,7 +52,6 @@ export default defineRailway(() => {
       healthcheckPath: '/healthz',
       healthcheckTimeout: 300,
       restartPolicyType: 'ALWAYS',
-      sleepApplication: false,
     },
     env: { ORTHANC_HOST: preserve(), ORTHANC_READ_BASIC: preserve() },
   });
