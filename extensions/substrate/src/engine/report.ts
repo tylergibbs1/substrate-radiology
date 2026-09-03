@@ -48,11 +48,42 @@ export type Sentence = {
   review?: ReviewState;
 };
 
+export type MeasurementSnapshot = {
+  measurementId: string;
+  label: string;
+  value: string;
+  studyInstanceUid: string;
+  seriesInstanceUid: string;
+  sopInstanceUid: string;
+  sopClassUid: string;
+  frameOfReferenceUid: string;
+  referencedImageId: string;
+};
+
+export type ReportEvidenceSnapshot = {
+  StudyInstanceUID: string;
+  SeriesInstanceUID: string;
+  SOPInstanceUID: string;
+  SOPClassUID: string;
+  PatientID?: string;
+  PatientName?: string;
+  PatientBirthDate?: string;
+  PatientSex?: string;
+  StudyDate?: string;
+  StudyTime?: string;
+  StudyID?: string;
+  AccessionNumber?: string;
+  StudyDescription?: string;
+};
+
 export type ReportVersion = {
   version: number;
   template: string;
   sentences: Sentence[];
   noteToSigner?: string;
+  /** Immutable evidence captured when this exact report version was drafted. */
+  measurements: readonly Readonly<MeasurementSnapshot>[];
+  evidence: Readonly<ReportEvidenceSnapshot> | null;
   hash: string;
   createdBy: Author;
   createdAt: number;
@@ -97,17 +128,28 @@ function normalizeText(text: string): string {
     .trim();
 }
 
+function ensureActive(signal?: AbortSignal): void {
+  if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
+}
+
 /** What the signature actually covers. */
 export function packetFor(version: ReportVersion): unknown {
+  const activeSentences = version.sentences.filter(sentence => sentence.review !== 'rejected');
+  const citedIds = new Set(
+    activeSentences.flatMap(sentence => sentence.provenance.map(entry => entry.measurementId))
+  );
   return {
     template: version.template,
-    sentences: version.sentences
-      .filter(sentence => sentence.review !== 'rejected')
-      .map(sentence => ({
-        section: sentence.section,
-        text: normalizeText(sentence.text),
-        cites: sentence.provenance.map(entry => entry.measurementId).sort(),
-      })),
+    sentences: activeSentences.map(sentence => ({
+      section: sentence.section,
+      text: normalizeText(sentence.text),
+      cites: sentence.provenance.map(entry => entry.measurementId).sort(),
+    })),
+    measurements: version.measurements
+      .filter(snapshot => citedIds.has(snapshot.measurementId))
+      .map(snapshot => ({ ...snapshot }))
+      .sort((a, b) => a.measurementId.localeCompare(b.measurementId)),
+    evidence: version.evidence,
   };
 }
 
@@ -126,6 +168,16 @@ type State = {
 
 const state: State = { versions: [], signature: null };
 const listeners = new Set<() => void>();
+
+type SignatureRequest = {
+  requestId: string;
+  versionNumber: number;
+  versionHash: string;
+  summaryForSigner: string;
+  status: 'pending' | 'signed' | 'declined';
+};
+
+let request: SignatureRequest | null = null;
 
 export function subscribeReport(listener: () => void): () => void {
   listeners.add(listener);
@@ -202,19 +254,36 @@ export async function addVersion(
   template: string,
   sentences: Sentence[],
   createdBy: Author,
-  noteToSigner?: string
+  noteToSigner?: string,
+  options: {
+    measurements?: MeasurementSnapshot[];
+    evidence?: ReportEvidenceSnapshot | null;
+    signal?: AbortSignal;
+  } = {}
 ): Promise<ReportVersion> {
+  ensureActive(options.signal);
+  const previous = currentVersion();
+  const measurements = Object.freeze(
+    (options.measurements ?? previous?.measurements ?? []).map(snapshot =>
+      Object.freeze({ ...snapshot })
+    )
+  );
+  const evidence = options.evidence === undefined ? (previous?.evidence ?? null) : options.evidence;
   const version: ReportVersion = {
     version: state.versions.length + 1,
     template,
     sentences,
     noteToSigner,
+    measurements,
+    evidence: evidence ? Object.freeze({ ...evidence }) : null,
     hash: '',
     createdBy,
     createdAt: Date.now(),
   };
   version.hash = await hashReport(version);
+  ensureActive(options.signal);
   state.versions.push(version);
+  if (request?.status === 'pending') request = null;
   announce();
   return version;
 }
@@ -230,11 +299,30 @@ export async function setSentenceReview(
   const sentences = version.sentences.map((sentence, sentenceIndex) =>
     sentenceIndex === index ? { ...sentence, review } : sentence
   );
+  if (
+    request?.status === 'pending' &&
+    request.versionNumber === version.version &&
+    request.versionHash === version.hash
+  ) {
+    // Acceptance itself is outside the packet, but rejection changes which
+    // sentences will be signed and exported. Recompute in both cases so this
+    // branch remains safe if packetFor later incorporates more review state.
+    const updated = { ...version, sentences, hash: '' };
+    updated.hash = await hashReport(updated);
+    state.versions[state.versions.length - 1] = updated;
+    request = { ...request, versionHash: updated.hash };
+    announce();
+    return updated;
+  }
   return addVersion(
     version.template,
     sentences,
     { type: 'human', label: 'you' },
-    version.noteToSigner
+    version.noteToSigner,
+    {
+      measurements: [...version.measurements],
+      evidence: version.evidence ? { ...version.evidence } : null,
+    }
   );
 }
 
@@ -250,7 +338,11 @@ export async function restoreVersion(versionNumber: number): Promise<ReportVersi
     source.template,
     sentences,
     { type: 'human', label: 'you' },
-    source.noteToSigner
+    source.noteToSigner,
+    {
+      measurements: [...source.measurements],
+      evidence: source.evidence ? { ...source.evidence } : null,
+    }
   );
 }
 
@@ -262,7 +354,11 @@ export async function changeTemplate(template: string): Promise<ReportVersion | 
     clean,
     version.sentences,
     { type: 'human', label: 'you' },
-    version.noteToSigner
+    version.noteToSigner,
+    {
+      measurements: [...version.measurements],
+      evidence: version.evidence ? { ...version.evidence } : null,
+    }
   );
 }
 
@@ -271,8 +367,23 @@ export function sign(
   attestation: string,
   acceptedUnsupported: string[]
 ): Signature | null {
-  const version = currentVersion();
+  if (request?.status !== 'pending' || !signer.trim() || !attestation.trim()) return null;
+  const version =
+    state.versions.find(
+      candidate =>
+        candidate.version === request?.versionNumber && candidate.hash === request.versionHash
+    ) ?? null;
   if (!version) return null;
+  const active = version.sentences.filter(sentence => sentence.review !== 'rejected');
+  if (active.some(sentence => sentence.author.type === 'agent' && sentence.review !== 'accepted')) {
+    return null;
+  }
+  const accepted = new Set(acceptedUnsupported);
+  if (
+    active.some(sentence => sentence.provenance.length === 0 && !accepted.has(sentence.sentenceId))
+  ) {
+    return null;
+  }
   state.signature = {
     version: version.version,
     hash: version.hash,
@@ -288,19 +399,11 @@ export function sign(
 export function clearReport(): void {
   state.versions = [];
   state.signature = null;
+  request = null;
   announce();
 }
 
 /* ------------------------------------------------------ the signature request */
-
-type SignatureRequest = {
-  requestId: string;
-  versionNumber: number;
-  summaryForSigner: string;
-  status: 'pending' | 'signed' | 'declined';
-};
-
-let request: SignatureRequest | null = null;
 
 export function pendingRequest(): SignatureRequest | null {
   return request;
@@ -312,11 +415,33 @@ export function requestSignature(summaryForSigner: string): SignatureRequest | n
   request = {
     requestId: `sig-${version.version}-${Date.now()}`,
     versionNumber: version.version,
+    versionHash: version.hash,
     summaryForSigner,
     status: 'pending',
   };
   announce();
   return request;
+}
+
+/** The exact report version a pending human request is reviewing. */
+export function requestedVersion(): ReportVersion | null {
+  if (!request) return null;
+  return (
+    state.versions.find(
+      version => version.version === request?.versionNumber && version.hash === request.versionHash
+    ) ?? null
+  );
+}
+
+/** The immutable version covered by the current signature. */
+export function signedVersion(): ReportVersion | null {
+  if (!state.signature) return null;
+  return (
+    state.versions.find(
+      version =>
+        version.version === state.signature?.version && version.hash === state.signature.hash
+    ) ?? null
+  );
 }
 
 export function resolveRequest(status: 'signed' | 'declined'): void {

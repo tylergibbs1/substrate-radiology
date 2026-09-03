@@ -7,17 +7,14 @@ import { register, type Proposal } from './proposals';
  *
  * DICOM gives every image a position in patient space (ImagePositionPatient)
  * and an orientation. If the patient was positioned the same way on both scans
- * — which is what a screening protocol is for — then the same anatomical point
- * has roughly the same patient coordinates a year apart. So placement is: keep
- * the source points, find the slice in the target series whose position is
- * nearest along the slice axis, and put the copy there.
+ * — and DICOM says they share one FrameOfReferenceUID — their patient
+ * coordinates are comparable. Placement keeps the source points, finds the
+ * nearest target slice along the slice axis, and puts the copy there.
  *
  * This is deliberately NOT registration. Nothing here deforms, rotates, or
  * matches image content. When the two studies do not share a frame of
- * reference, the result is an estimate and is reported as unaligned so the
- * radiologist knows to check it rather than trust it. That honesty is the
- * point: a mark that silently claimed to be registered would be worse than no
- * mark at all.
+ * reference, this module refuses. A mark that silently claimed to be
+ * registered would be worse than no mark at all.
  */
 
 export type TargetInstance = {
@@ -57,10 +54,18 @@ export function findTargetSlice(
   viewPlaneNormal: readonly number[],
   targets: TargetInstance[]
 ): Placement | null {
-  if (targets.length === 0) return null;
+  if (!sourceFrameOfReferenceUID || targets.length === 0) return null;
+  // Patient coordinates are comparable only inside one DICOM Frame of
+  // Reference. A different frame requires an explicit registration transform;
+  // copying numbers across frames would invent a target location.
+  const comparable = targets.filter(
+    target =>
+      target.frameOfReferenceUID !== '' && target.frameOfReferenceUID === sourceFrameOfReferenceUID
+  );
+  if (comparable.length === 0) return null;
   let best: TargetInstance | null = null;
   let bestDistance = Number.POSITIVE_INFINITY;
-  for (const target of targets) {
+  for (const target of comparable) {
     const distance = distanceAlongNormal(sourcePoint, target.position, viewPlaneNormal);
     if (distance < bestDistance) {
       bestDistance = distance;
@@ -94,6 +99,15 @@ export function placeProposal(
   target: { seriesUID: string; studyUID: string; frameOfReferenceUID: string },
   label: string
 ): string {
+  if (
+    !source.FrameOfReferenceUID ||
+    !target.frameOfReferenceUID ||
+    source.FrameOfReferenceUID !== target.frameOfReferenceUID
+  ) {
+    throw new Error(
+      'A proposal cannot copy patient coordinates into a different Frame of Reference without registration.'
+    );
+  }
   const annotationUID = `substrate-proposal-${source.uid}-${Date.now()}`;
   // Cornerstone types these as fixed-length tuples, and a plain number[] is
   // not assignable to Point3.

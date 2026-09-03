@@ -14,7 +14,7 @@ import {
 } from '../engine/report';
 import { sessionLabel, token, type SurfaceElevation } from '../designTokens';
 import { isWriteEvent, presence } from '../webmcp/presence';
-import { liveTools, type WebMcpTool } from '../webmcp/spec';
+import { liveTools, type RegisteredTool } from '../webmcp/spec';
 import { AgentIslandExpanded } from './AgentIslandExpanded';
 import { AgentIslandRail } from './AgentIslandRail';
 import {
@@ -41,7 +41,7 @@ export function AgentIsland({
   const [instructionsText, setInstructionsText] = useState(() =>
     autonomy.getStandingInstructions().join('\n')
   );
-  const [toolAudit, setToolAudit] = useState<WebMcpTool[]>([]);
+  const [toolAudit, setToolAudit] = useState<RegisteredTool[]>([]);
   const registration = presence.getRegistration();
 
   useEffect(() => {
@@ -151,7 +151,7 @@ export function AgentIsland({
               ? formatActivity(last.activity)
               : (IN_FLIGHT.get(last.tool) ?? 'updating the viewer')
             : lastWrite
-              ? `Last action ${relative(Date.now() - lastWrite.startedAt)}`
+              ? relative(Date.now() - lastWrite.startedAt)
               : failure?.kind === 'unsupported'
                 ? 'in this browser'
                 : 'for this study';
@@ -263,12 +263,12 @@ export function AgentIsland({
       .substrate-touch-hitbox::after { position: absolute; top: 50%; left: 50%; width: ${token['hit/target']}; height: ${token['hit/target']}; content: ''; transform: translate(-50%, -50%); }
       .substrate-history-undo { opacity: 0; transition: color ${token['motion/enter']}ms ease-out, opacity ${token['motion/enter']}ms ease-out; }
       .substrate-history-row:hover .substrate-history-undo, .substrate-history-undo:focus-visible { opacity: 1; }
-      .substrate-disclosure { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; width: 100%; min-height: ${token['hit/target']}; padding: 0; color: ${token['ink/low']}; font: ${token['text/ui']}; list-style: none; cursor: pointer; transition: color ${token['motion/enter']}ms ease-out; }
+      .substrate-disclosure { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; width: 100%; min-height: ${token['hit/target']}; padding: 0; border-radius: ${token['radius/inner']}; color: ${token['ink/low']}; font: ${token['text/ui']}; list-style: none; cursor: pointer; transition: color ${token['motion/enter']}ms ease-out, background-color ${token['motion/enter']}ms ease-out; }
       .substrate-disclosure::-webkit-details-marker { display: none; }
       .substrate-disclosure::marker { content: ''; }
       .substrate-disclosure::after { width: ${token['icon/disclosure-size']}; height: ${token['icon/disclosure-size']}; margin-right: ${token['space/xs']}; border-right: 1px solid currentColor; border-bottom: 1px solid currentColor; content: ''; transform: rotate(-45deg); transition: transform ${token['motion/enter']}ms ease-out; }
       details[open] > .substrate-disclosure::after { transform: rotate(45deg); }
-      .substrate-disclosure:hover { color: ${token['ink/high']}; }
+      .substrate-disclosure:hover, .substrate-disclosure:focus-visible { color: ${token['ink/high']}; background: ${token['surface/inset']}; }
       .substrate-rail-button { min-height: ${token['hit/target']}; padding: 7px ${token['space/md']}; border: 1px solid ${token['border/hairline']}; border-radius: ${token['radius/inner']}; background: transparent; color: ${token['ink/high']}; font: ${token['text/ui']}; cursor: pointer; transition: border-color ${token['motion/enter']}ms ease-out, color ${token['motion/enter']}ms ease-out, background-color ${token['motion/enter']}ms ease-out, transform ${token['motion/exit']}ms ease-out; }
       .substrate-rail-button:hover { border-color: ${token['ink/low']}; }
       .substrate-rail-button:active { transform: scale(.96); }

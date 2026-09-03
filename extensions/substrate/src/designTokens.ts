@@ -29,12 +29,11 @@ export const token = {
   'session/done': 'Done',
   'session/error': 'Error',
 
-  'autonomy/assist': 'Assist',
-  'autonomy/auto-prep': 'Auto-prep',
-  'autonomy/full-prep': 'Full prep',
-
   'panel/work': 'Work',
   'panel/details': 'Details',
+  'panel/header': 'fixed',
+  'panel/content': 'scrollable',
+  'panel/footer': 'fixed',
 
   'surface/room': '#040404',
   'surface/bed': '#101014',
@@ -75,8 +74,16 @@ export const token = {
   'feature/tabular': '"tnum" 1',
   'wrap/heading': 'balance',
   'wrap/body': 'pretty',
+  'lane/status': '104px',
   'lane/history-time': '8ch',
+  'lane/connection-state': '14ch',
+  'history/max-rows': 4,
+  'history/row-height': '36px',
   'layout/panel-width': '320px',
+  'layout/panel-shell-header-height': '44px',
+  'layout/panel-tab-target': '44px',
+  'layout/panel-tab-mark': '32px',
+  'layout/scrollbar-gutter': 'stable',
   'hit/target': '44px',
   'icon/disclosure-size': '7px',
 
@@ -100,13 +107,8 @@ export type SessionState = 'idle' | 'working' | 'waiting-for-you' | 'done' | 'er
 export type AutonomyLevel = 'assist' | 'auto-prep' | 'full-prep';
 export type AgentPanelView = 'work' | 'details';
 export type ReviewState = 'unreviewed' | 'accepted' | 'rejected' | 'stale';
-export type SurfaceSystem = 'bench' | 'plate';
 export type SurfaceElevation = 'flush' | 'raised';
 
 export function sessionLabel(state: SessionState): string {
   return token[`session/${state}`];
-}
-
-export function autonomyLabel(level: AutonomyLevel): string {
-  return token[`autonomy/${level}`];
 }

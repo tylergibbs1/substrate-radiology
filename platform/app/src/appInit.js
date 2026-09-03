@@ -26,6 +26,7 @@ import {
 
 import loadModules, { loadModule as peerImport } from './pluginImports';
 import { publicUrl } from './utils/publicUrl';
+import getReplacedModeIds from './utils/getReplacedModeIds';
 
 /**
  * @param {object|func} appConfigOrFunc - application configuration, or a function that returns application configuration
@@ -102,6 +103,7 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
   }
 
   const loadedModes = await loadModules([...(appConfig.modes || []), ...defaultModes]);
+  const replacedModeIds = getReplacedModeIds(loadedModes);
 
   // This is the name for the loaded instance object
   appConfig.loadedModes = [];
@@ -112,6 +114,10 @@ async function appInit(appConfigOrFunc, defaultExtensions, defaultModes) {
       continue;
     }
     const { id } = mode;
+
+    if (replacedModeIds.has(id)) {
+      continue;
+    }
 
     if (mode.modeFactory) {
       // If the appConfig contains configuration for this mode, use it.

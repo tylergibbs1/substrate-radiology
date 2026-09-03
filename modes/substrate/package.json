@@ -1,0 +1,44 @@
+{
+  "name": "@substrate/mode-substrate",
+  "version": "0.1.0",
+  "description": "Substrate WebMCP integration for OHIF's longitudinal viewer.",
+  "author": "Substrate",
+  "license": "MIT",
+  "main": "dist/substrate-mode.umd.js",
+  "module": "src/index.ts",
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "ohif-mode"
+  ],
+  "engines": {
+    "node": ">=18",
+    "yarn": ">=1.20.0"
+  },
+  "scripts": {
+    "clean": "shx rm -rf dist",
+    "clean:deep": "yarn run clean && shx rm -rf node_modules",
+    "dev": "cross-env NODE_ENV=development webpack --config .webpack/webpack.dev.js --watch --output-pathinfo",
+    "build": "cross-env NODE_ENV=production webpack --config .webpack/webpack.prod.js",
+    "build:package": "yarn run build",
+    "start": "yarn run dev",
+    "test:unit": "jest --watchAll",
+    "test:unit:ci": "jest --ci --runInBand --passWithNoTests"
+  },
+  "peerDependencies": {
+    "@ohif/mode-longitudinal": "3.12.0",
+    "@substrate/extension-substrate": "0.1.0"
+  },
+  "dependencies": {
+    "@babel/runtime": "7.28.2"
+  },
+  "devDependencies": {
+    "webpack": "5.95.0",
+    "webpack-merge": "5.10.0"
+  }
+}

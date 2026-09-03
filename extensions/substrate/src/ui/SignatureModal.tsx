@@ -3,13 +3,14 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { token } from '../designTokens';
 import { exportDicomSr, exportPdf } from '../engine/exportReport';
 import {
-  currentVersion,
   dismissRequest,
   pendingRequest,
+  requestedVersion,
   resolveRequest,
   sign,
   signature,
   signatureIsStale,
+  signedVersion,
   setSentenceReview,
   subscribeReport,
   type Sentence,
@@ -54,9 +55,9 @@ export function SignatureModal({ services }: Props): React.ReactElement | null {
   useEffect(() => subscribeReport(() => tick(value => value + 1)), []);
 
   const request = pendingRequest();
-  const version = currentVersion();
   const signed = signature();
   const isSigned = request?.status === 'signed' && signed !== null;
+  const version = isSigned ? signedVersion() : requestedVersion();
   const open = (request?.status === 'pending' || isSigned) && version !== null;
 
   useEffect(() => {
@@ -117,7 +118,9 @@ export function SignatureModal({ services }: Props): React.ReactElement | null {
   if (!open || !version) return null;
 
   const activeSentences = version.sentences.filter(sentence => sentence.review !== 'rejected');
-  const unreviewed = activeSentences.filter(sentence => sentence.review !== 'accepted');
+  const unreviewed = activeSentences.filter(
+    sentence => sentence.author.type === 'agent' && sentence.review !== 'accepted'
+  );
   const unaccepted = unsupported.filter(sentence => !acceptedUnsupported.has(sentence.sentenceId));
   const canSign = Boolean(signer.trim()) && unreviewed.length === 0 && unaccepted.length === 0;
 
@@ -125,6 +128,8 @@ export function SignatureModal({ services }: Props): React.ReactElement | null {
   const viewportGridService = services.viewportGridService as ViewportGridService | undefined;
 
   const measurementOf = (measurementId: string): Measurement => {
+    const snapshot = version.measurements.find(row => row.measurementId === measurementId);
+    if (snapshot) return { label: snapshot.label, value: snapshot.value };
     const found = measurementService?.getMeasurement?.(measurementId);
     const display = found?.displayText;
     const value =
@@ -427,8 +432,12 @@ export function SignatureModal({ services }: Props): React.ReactElement | null {
                   className="substrate-signature-primary"
                   disabled={!canSign}
                   onClick={() => {
-                    sign(signer.trim(), ATTESTATION, [...acceptedUnsupported]);
-                    resolveRequest('signed');
+                    const completed = sign(signer.trim(), ATTESTATION, [...acceptedUnsupported]);
+                    if (completed) resolveRequest('signed');
+                    else
+                      setExportError(
+                        'This report version changed. Review the current version before signing.'
+                      );
                   }}
                 >
                   Sign

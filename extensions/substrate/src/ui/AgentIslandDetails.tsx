@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 
 import { autonomy } from '../engine/autonomy';
 import { token } from '../designTokens';
-import type { RegistrationResult, WebMcpTool } from '../webmcp/spec';
+import type { RegisteredTool, RegistrationResult } from '../webmcp/spec';
 import { TimingComparison } from './TimingComparison';
 import { listResetStyle, panelHeadingStyle } from './agentIslandStyles';
 
@@ -10,7 +10,7 @@ type Props = {
   hidden: boolean;
   instructionsText: string;
   setInstructionsText: (value: string) => void;
-  toolAudit: WebMcpTool[];
+  toolAudit: RegisteredTool[];
   registration: RegistrationResult;
   onBack: () => void;
 };
@@ -32,7 +32,14 @@ export function AgentIslandDetails({
     <div
       hidden={hidden}
       aria-label="Agent details"
-      style={{ display: hidden ? 'none' : 'grid', gap: token['space/base'] }}
+      data-panel-header={token['panel/header']}
+      data-panel-content={token['panel/content']}
+      style={{
+        display: hidden ? 'none' : 'grid',
+        gridTemplateRows: 'auto minmax(0, 1fr)',
+        height: '100%',
+        minHeight: 0,
+      }}
     >
       <header
         style={{
@@ -64,106 +71,141 @@ export function AgentIslandDetails({
         <h2 style={panelHeadingStyle}>Details</h2>
       </header>
 
-      <details
-        open={open.preferences}
-        onToggle={event => setSection('preferences', event.currentTarget.open)}
-        style={{ borderBottom: `1px solid ${token['border/hairline']}` }}
-      >
-        <summary className="substrate-disclosure">Preferences</summary>
-        <div
-          style={{
-            display: 'grid',
-            gap: token['space/base'],
-            padding: token['space/md'],
-            marginBottom: token['space/md'],
-            background: token['surface/inset'],
-            borderRadius: token['radius/inner'],
-          }}
-        >
-          <label
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'auto minmax(0, 1fr)',
-              alignItems: 'center',
-              gap: token['space/md'],
-              minHeight: token['hit/target'],
-              color: token['ink/high'],
-              font: token['text/ui'],
-              cursor: 'pointer',
-            }}
-          >
-            <input
-              type="checkbox"
-              checked={askBeforeChanges}
-              onChange={event => autonomy.setLevel(event.target.checked ? 'assist' : 'full-prep')}
-              style={{ width: 16, height: 16, margin: 0, accentColor: token['ink/low'] }}
-            />
-            <span>Ask before changes</span>
-          </label>
-          <textarea
-            aria-label="Standing instructions"
-            rows={2}
-            value={instructionsText}
-            onChange={event => setInstructionsText(event.target.value)}
-            onBlur={() => autonomy.setStandingInstructions(instructionsText.split('\n'))}
-            placeholder="Standing instructions"
-            style={{
-              boxSizing: 'border-box',
-              width: '100%',
-              minHeight: token['hit/target'],
-              padding: `0 0 ${token['space/md']}`,
-              resize: 'vertical',
-              color: token['ink/high'],
-              background: 'transparent',
-              border: 0,
-              borderBottom: `1px solid ${token['border/hairline']}`,
-              borderRadius: token['radius/none'],
-              outline: 0,
-              font: token['text/ui'],
-            }}
-          />
-        </div>
-      </details>
-
-      <details
-        open={open.timing}
-        onToggle={event => setSection('timing', event.currentTarget.open)}
-        style={{ borderBottom: `1px solid ${token['border/hairline']}` }}
-      >
-        <summary className="substrate-disclosure">Timing</summary>
-        <TimingComparison />
-      </details>
-
-      <details
-        open={open.connection}
-        onToggle={event => setSection('connection', event.currentTarget.open)}
+      <div
         style={{
-          paddingBottom: token['space/md'],
-          borderBottom: `1px solid ${token['border/hairline']}`,
-          color: token['ink/low'],
-          font: token['text/ui'],
+          display: 'grid',
+          alignContent: 'start',
+          gap: token['space/base'],
+          minHeight: 0,
+          overflowY: 'auto',
+          paddingTop: token['space/base'],
+          scrollbarGutter: token['layout/scrollbar-gutter'],
         }}
       >
-        <summary className="substrate-disclosure">Connection</summary>
-        <p style={{ margin: 0 }}>A connected agent can see this page.</p>
-        <ul style={{ ...listResetStyle, marginTop: token['space/sm'] }}>
-          {toolAudit.map(tool => (
-            <li
-              key={tool.name}
-              style={{ display: 'flex', justifyContent: 'space-between', gap: token['space/sm'] }}
+        <details
+          open={open.preferences}
+          onToggle={event => setSection('preferences', event.currentTarget.open)}
+          style={{ borderBottom: `1px solid ${token['border/hairline']}` }}
+        >
+          <summary className="substrate-disclosure">Preferences</summary>
+          <div
+            style={{
+              display: 'grid',
+              gap: token['space/base'],
+              padding: token['space/md'],
+              marginBottom: token['space/md'],
+              background: token['surface/inset'],
+              borderRadius: token['radius/inner'],
+            }}
+          >
+            <label
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'auto minmax(0, 1fr)',
+                alignItems: 'center',
+                gap: token['space/md'],
+                minHeight: token['hit/target'],
+                color: token['ink/high'],
+                font: token['text/ui'],
+                cursor: 'pointer',
+              }}
             >
-              <span>{tool.title}</span>
-              <span>
-                {tool.annotations?.readOnlyHint ? 'Read' : 'Write'}
-                {tool.annotations?.untrustedContentHint ? ' · untrusted' : ''}
-              </span>
-            </li>
-          ))}
-        </ul>
-        {!registration.ok ? (
-          <p style={{ margin: `${token['space/sm']} 0 0` }}>Unavailable</p>
-        ) : null}
-      </details>
+              <input
+                type="checkbox"
+                checked={askBeforeChanges}
+                onChange={event => autonomy.setLevel(event.target.checked ? 'assist' : 'full-prep')}
+                style={{ width: 16, height: 16, margin: 0, accentColor: token['ink/low'] }}
+              />
+              <span>Ask before changes</span>
+            </label>
+            <textarea
+              aria-label="Standing instructions"
+              rows={2}
+              value={instructionsText}
+              onChange={event => setInstructionsText(event.target.value)}
+              onBlur={() => autonomy.setStandingInstructions(instructionsText.split('\n'))}
+              placeholder="Standing instructions"
+              style={{
+                boxSizing: 'border-box',
+                width: '100%',
+                minHeight: token['hit/target'],
+                padding: `0 0 ${token['space/md']}`,
+                resize: 'vertical',
+                color: token['ink/high'],
+                background: 'transparent',
+                border: 0,
+                borderBottom: `1px solid ${token['border/hairline']}`,
+                borderRadius: token['radius/none'],
+                outline: 0,
+                font: token['text/ui'],
+              }}
+            />
+          </div>
+        </details>
+
+        <details
+          open={open.timing}
+          onToggle={event => setSection('timing', event.currentTarget.open)}
+          style={{ borderBottom: `1px solid ${token['border/hairline']}` }}
+        >
+          <summary className="substrate-disclosure">Timing</summary>
+          <TimingComparison />
+        </details>
+
+        <details
+          open={open.connection}
+          onToggle={event => setSection('connection', event.currentTarget.open)}
+          style={{
+            paddingBottom: token['space/md'],
+            borderBottom: `1px solid ${token['border/hairline']}`,
+            color: token['ink/low'],
+            font: token['text/ui'],
+          }}
+        >
+          <summary className="substrate-disclosure">Connection</summary>
+          <p style={{ margin: 0 }}>A connected agent can see this page.</p>
+          <ul
+            style={{
+              ...listResetStyle,
+              display: 'grid',
+              marginTop: token['space/sm'],
+            }}
+          >
+            {toolAudit.map(tool => (
+              <li
+                key={tool.name}
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: `minmax(0, 1fr) ${token['lane/connection-state']}`,
+                  alignItems: 'baseline',
+                  gap: token['space/md'],
+                  minHeight: 32,
+                  padding: `${token['space/xs']} 0`,
+                }}
+              >
+                <span
+                  title={tool.title}
+                  style={{
+                    minWidth: 0,
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {tool.title ?? tool.name}
+                </span>
+                <span style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {tool.annotations?.readOnlyHint ? 'Read' : 'Write'}
+                  {tool.annotations?.untrustedContentHint ? ' · untrusted' : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+          {!registration.ok ? (
+            <p style={{ margin: `${token['space/sm']} 0 0` }}>Unavailable</p>
+          ) : null}
+        </details>
+      </div>
     </div>
   );
 }

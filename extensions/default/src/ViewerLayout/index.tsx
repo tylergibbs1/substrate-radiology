@@ -222,6 +222,12 @@ function ViewerLayout({
                     side="right"
                     isExpanded={!rightPanelClosedState}
                     servicesManager={servicesManager}
+                    className={hasSubstrateAgentPanel ? 'substrate-host-panel-shell' : undefined}
+                    contentClassName={
+                      hasSubstrateAgentPanel
+                        ? 'substrate-host-panel-content min-h-0 flex-1 overflow-hidden'
+                        : undefined
+                    }
                     {...rightPanelProps}
                   />
                 </ResizablePanel>

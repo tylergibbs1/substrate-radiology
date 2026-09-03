@@ -6,7 +6,7 @@ window.config = {
     option: 'never',
   },
   extensions: [],
-  modes: [],
+  modes: ['@substrate/mode-substrate'],
   showWarningMessageForCrossOrigin: true,
   showCPUFallbackMessage: true,
   showLoadingIndicator: true,

@@ -15,17 +15,40 @@ import { SignatureModal } from './SignatureModal';
 
 const CONTAINER_ID = 'substrate-agent-island';
 
-let root: Root | null = null;
+type MountedIsland = {
+  container: HTMLElement;
+  root: Root;
+  sessionId: number;
+};
 
-export function mountAgentIsland(services: Record<string, unknown>): void {
-  if (typeof document === 'undefined' || root) return;
-  let container = document.getElementById(CONTAINER_ID);
-  if (!container) {
-    container = document.createElement('div');
-    container.id = CONTAINER_ID;
-    document.body.appendChild(container);
+let mounted: MountedIsland | null = null;
+
+function retireIsland(island: MountedIsland): void {
+  // Do not let a later mount find and reuse the container while React still
+  // owns it. The deferred cleanup then removes this exact retired node only.
+  island.container.removeAttribute('id');
+  setTimeout(() => {
+    island.root.unmount();
+    island.container.remove();
+  }, 0);
+}
+
+export function mountAgentIsland(services: Record<string, unknown>, sessionId = 0): void {
+  if (typeof document === 'undefined') return;
+  if (mounted?.sessionId === sessionId) return;
+  if (mounted) {
+    const previous = mounted;
+    mounted = null;
+    retireIsland(previous);
   }
-  root = createRoot(container);
+
+  const existing = document.getElementById(CONTAINER_ID);
+  existing?.remove();
+  const container = document.createElement('div');
+  container.id = CONTAINER_ID;
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  mounted = { container, root, sessionId };
   root.render(
     <>
       <AgentViewportSignature />
@@ -34,14 +57,11 @@ export function mountAgentIsland(services: Record<string, unknown>): void {
   );
 }
 
-export function unmountAgentIsland(): void {
-  if (!root) return;
-  const current = root;
-  root = null;
+export function unmountAgentIsland(sessionId?: number): void {
+  if (!mounted || (sessionId !== undefined && mounted.sessionId !== sessionId)) return;
+  const current = mounted;
+  mounted = null;
   // Unmount on a later task: React refuses to unmount a root synchronously from
   // inside a render or lifecycle, and onModeExit can be called from one.
-  setTimeout(() => {
-    current.unmount();
-    document.getElementById(CONTAINER_ID)?.remove();
-  }, 0);
+  retireIsland(current);
 }

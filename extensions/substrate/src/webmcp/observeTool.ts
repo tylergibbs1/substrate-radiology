@@ -4,6 +4,10 @@ import { refuse, type JsonObject, type JsonValue } from './spec';
 
 type UndoAction = () => void | Promise<void>;
 
+function ensureActive(signal: AbortSignal): void {
+  if (signal.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
+}
+
 function activityFor(
   name: string,
   input: JsonObject,
@@ -92,7 +96,8 @@ export function observeTool(
     input: JsonObject,
     signal?: AbortSignal,
     setUndo?: (action: UndoAction) => void
-  ) => Promise<JsonValue>
+  ) => Promise<JsonValue>,
+  sessionSignal: AbortSignal
 ): (input: JsonObject, context?: { signal?: AbortSignal }) => Promise<JsonValue> {
   return async (input, context) => {
     const actualInput = input ?? {};
@@ -101,8 +106,11 @@ export function observeTool(
     const localController = new AbortController();
     const stop = () => localController.abort();
     const upstreamAbort = () => localController.abort();
-    if (context?.signal?.aborted) localController.abort();
+    const sessionAbort = () => localController.abort();
+    if (context?.signal?.aborted || sessionSignal.aborted) localController.abort();
     else context?.signal?.addEventListener('abort', upstreamAbort, { once: true });
+    if (!sessionSignal.aborted)
+      sessionSignal.addEventListener('abort', sessionAbort, { once: true });
     const callId = presence.begin(
       name,
       argsSummary,
@@ -149,7 +157,9 @@ export function observeTool(
         return result;
       }
 
+      ensureActive(localController.signal);
       const result = await run(actualInput, localController.signal, setUndo);
+      ensureActive(localController.signal);
       const refused =
         typeof result === 'object' && result !== null && (result as JsonObject).ok === false;
       presence.finish(callId, {
@@ -165,6 +175,32 @@ export function observeTool(
       });
       return result;
     } catch (error) {
+      if (undo) {
+        try {
+          void Promise.resolve(undo()).catch(() => undefined);
+        } catch {
+          // Keep the original failure/stop result. Undo is best-effort but is
+          // registered before the first side effect for multi-step writes.
+        }
+      }
+      if (localController.signal.aborted) {
+        const result = refuse(
+          'STOPPED',
+          'The radiologist stopped this change.',
+          'Do not retry it unless the radiologist asks again.'
+        );
+        presence.finish(callId, {
+          tool: name,
+          argsSummary,
+          resultSummary: String(result.message),
+          entities: [],
+          ok: false,
+          startedAt,
+          activity: activityFor(name, actualInput, true, false),
+          effects: [],
+        });
+        return result;
+      }
       presence.finish(callId, {
         tool: name,
         argsSummary,
@@ -177,6 +213,7 @@ export function observeTool(
       throw error;
     } finally {
       context?.signal?.removeEventListener('abort', upstreamAbort);
+      sessionSignal.removeEventListener('abort', sessionAbort);
     }
   };
 }

@@ -16,7 +16,8 @@ import { Separator } from '../Separator';
  */
 type SidePanelProps = {
   side: 'left' | 'right';
-  className: string;
+  className?: string;
+  contentClassName?: string;
   activeTabIndex: number;
   onOpen: () => void;
   onClose: () => void;
@@ -182,6 +183,7 @@ const createBaseStyle = (expandedWidth: number) => {
 const SidePanel = ({
   side,
   className,
+  contentClassName,
   activeTabIndex: activeTabIndexProp,
   isExpanded,
   tabs,
@@ -284,6 +286,7 @@ const SidePanel = ({
     return (
       <>
         <div
+          data-side-panel-toggle="closed"
           className={classnames(
             'bg-secondary-dark flex h-[28px] w-full cursor-pointer items-center rounded-md',
             side === 'left' ? 'justify-end pr-2' : 'justify-start pl-2'
@@ -341,6 +344,7 @@ const SidePanel = ({
   const getCloseIcon = () => {
     return (
       <div
+        data-side-panel-toggle="open"
         className={classnames(
           'absolute flex cursor-pointer items-center justify-center',
           side === 'left' ? 'right-0' : 'left-0'
@@ -364,7 +368,12 @@ const SidePanel = ({
     return (
       <>
         {getCloseIcon()}
-        <div className={classnames('flex grow justify-center')}>
+        <div
+          data-side-panel-tabs
+          role="tablist"
+          aria-label={`${side === 'left' ? 'Left' : 'Right'} panel`}
+          className={classnames('flex grow justify-center')}
+        >
           <div className={classnames('bg-primary-dark text-primary flex flex-wrap')}>
             {tabs.map((tab, tabIndex) => {
               const { disabled } = tab;
@@ -372,6 +381,7 @@ const SidePanel = ({
                 <React.Fragment key={tabIndex}>
                   {tabIndex % numCols !== 0 && (
                     <div
+                      data-side-panel-tab-spacer
                       className={classnames(
                         'flex h-[28px] w-[2px] items-center bg-black',
                         tabSpacerWidth
@@ -381,8 +391,15 @@ const SidePanel = ({
                     </div>
                   )}
                   <Tooltip key={tabIndex}>
-                    <TooltipTrigger>
+                    <TooltipTrigger
+                      role="tab"
+                      aria-label={tab.label}
+                      aria-selected={tabIndex === activeTabIndex}
+                      aria-disabled={disabled || undefined}
+                    >
                       <div
+                        data-side-panel-tab
+                        data-active={tabIndex === activeTabIndex}
                         className={getTabClassNames(
                           numCols,
                           tabs.length,
@@ -397,6 +414,7 @@ const SidePanel = ({
                         data-cy={`${tab.name}-btn`}
                       >
                         <div
+                          data-side-panel-tab-mark
                           className={getTabIconClassNames(tabs.length, tabIndex === activeTabIndex)}
                         >
                           {React.createElement(Icons[tab.iconName] || Icons.MissingIcon, {
@@ -443,10 +461,14 @@ const SidePanel = ({
   const getOpenStateComponent = () => {
     return (
       <>
-        <div className="bg-bkg-med flex h-[40px] flex-shrink-0 select-none rounded-t p-2">
+        <div
+          data-side-panel-header
+          className="bg-bkg-med flex h-[40px] flex-shrink-0 select-none rounded-t p-2"
+        >
           {tabs.length === 1 ? getOneTabComponent() : getTabGridComponent()}
         </div>
         <Separator
+          data-side-panel-separator
           orientation="horizontal"
           className="bg-black"
           thickness="2px"
@@ -465,7 +487,16 @@ const SidePanel = ({
           {getOpenStateComponent()}
           {tabs.map((tab, tabIndex) => {
             if (tabIndex === activeTabIndex) {
-              return <tab.content key={tabIndex} />;
+              return contentClassName ? (
+                <div
+                  key={tabIndex}
+                  className={contentClassName}
+                >
+                  <tab.content />
+                </div>
+              ) : (
+                <tab.content key={tabIndex} />
+              );
             }
             return null;
           })}

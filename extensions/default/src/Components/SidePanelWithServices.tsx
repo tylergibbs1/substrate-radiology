@@ -6,6 +6,7 @@ export type SidePanelWithServicesProps = {
   servicesManager: AppTypes.ServicesManager;
   side: 'left' | 'right';
   className?: string;
+  contentClassName?: string;
   activeTabIndex: number;
   tabs?: any;
   expandedWidth?: number;

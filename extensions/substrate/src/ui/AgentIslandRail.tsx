@@ -37,7 +37,7 @@ export function AgentIslandRail({
       aria-label={`Agent activity: ${state}`}
       style={{
         display: 'grid',
-        gridTemplateColumns: 'auto minmax(0, 1fr) auto',
+        gridTemplateColumns: `${token['lane/status']} minmax(0, 1fr) auto`,
         alignItems: 'center',
         gap: token['space/md'],
         width: '100%',
@@ -52,6 +52,8 @@ export function AgentIslandRail({
           display: 'inline-flex',
           alignItems: 'center',
           gap: token['space/sm'],
+          minWidth: 0,
+          overflow: 'hidden',
           color: session === 'error' ? token['status/error'] : token['ink/high'],
           whiteSpace: 'nowrap',
         }}
@@ -119,6 +121,7 @@ export function AgentIslandRail({
         <button
           className="substrate-rail-button"
           type="button"
+          aria-label="Open Agent Work panel"
           onClick={() => setOpen(true)}
         >
           Open panel

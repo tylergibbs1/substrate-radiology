@@ -13,6 +13,8 @@ export type DataSource = {
 };
 
 export type ViewerDependencies = {
+  /** Aborted when the Substrate mode exits; every active tool call must stop with it. */
+  sessionSignal: AbortSignal;
   servicesManager: { services: Record<string, unknown> };
   commandsManager: { runCommand: (name: string, options?: unknown) => unknown };
   extensionManager: {
@@ -57,6 +59,16 @@ export type DisplaySet = {
     SliceThickness?: number;
     SpacingBetweenSlices?: number;
     SliceLocation?: number;
+    SOPInstanceUID?: string;
+    SOPClassUID?: string;
+    PatientID?: string;
+    PatientName?: string;
+    PatientBirthDate?: string;
+    PatientSex?: string;
+    StudyTime?: string;
+    StudyID?: string;
+    AccessionNumber?: string;
+    StudyDescription?: string;
   }[];
   imageIds?: string[];
 };
@@ -121,6 +133,7 @@ export type CornerstoneViewportService = {
         getCamera?: () => Record<string, unknown>;
         setCamera?: (camera: Record<string, unknown>) => void;
         render?: () => void;
+        resetCamera?: () => boolean;
       }
     | undefined;
   getOrientation?: (viewportId: string) => string;
@@ -146,7 +159,13 @@ export function activeDataSource(deps: ViewerDependencies): DataSource | undefin
 
 export function acquiredOn(displaySet: DisplaySet): string {
   const instance = displaySet.instances?.[0];
-  return instance?.StudyDate ?? instance?.SeriesDate ?? displaySet.SeriesDate ?? '';
+  return (
+    instance?.StudyDate ??
+    instance?.SeriesDate ??
+    displaySet.StudyDate ??
+    displaySet.SeriesDate ??
+    ''
+  );
 }
 
 function orientationOf(displaySet: DisplaySet): string {

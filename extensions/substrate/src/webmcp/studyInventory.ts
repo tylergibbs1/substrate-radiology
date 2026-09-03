@@ -30,7 +30,9 @@ export function createStudyInventory(
   displaySet: DisplaySetService | undefined,
   dataSource: DataSource | undefined
 ) {
-  let cachedInventory: Promise<InventoryStudy[]> | null = null;
+  let cachedInventory: { currentStudyUid: string; studies: InventoryStudy[] } | null = null;
+  let inFlight: { currentStudyUid: string; promise: Promise<InventoryStudy[] | null> } | null =
+    null;
 
   const active = (): InventoryStudy[] => {
     const grouped = new Map<string, InventoryStudy>();
@@ -55,20 +57,21 @@ export function createStudyInventory(
     return [...grouped.values()];
   };
 
-  const get = async (): Promise<InventoryStudy[]> => {
-    if (cachedInventory) {
-      const cached = await cachedInventory;
-      // Do not keep the empty snapshot captured before route hydration.
-      if (cached.length > 0 || active().length === 0) return cached;
-      cachedInventory = null;
+  const get = async (requestedCurrentStudyUid?: string): Promise<InventoryStudy[]> => {
+    const fallback = active();
+    const currentStudyUid = requestedCurrentStudyUid || fallback[0]?.studyUid || '';
+    if (cachedInventory?.currentStudyUid === currentStudyUid) return cachedInventory.studies;
+    if (inFlight?.currentStudyUid === currentStudyUid) {
+      const discovered = await inFlight.promise;
+      return discovered ?? fallback;
     }
 
-    cachedInventory = (async () => {
-      const fallback = active();
-      const currentStudyUid = fallback[0]?.studyUid;
+    const promise = (async (): Promise<InventoryStudy[] | null> => {
       const searchStudies = dataSource?.query?.studies?.search;
       const searchSeries = dataSource?.query?.series?.search;
-      if (!currentStudyUid || !searchStudies || !searchSeries) return fallback;
+      // A fallback is a live viewer snapshot, not a patient inventory. Never
+      // cache it: route hydration and study changes can replace it at any time.
+      if (!currentStudyUid || !searchStudies || !searchSeries) return null;
 
       try {
         const currentRows = await searchStudies({ studyInstanceUid: currentStudyUid });
@@ -97,16 +100,20 @@ export function createStudyInventory(
             };
           })
         );
-        return inventory
+        const complete = inventory
           .filter(study => study.studyUid && study.series.length > 0)
           .sort((a, b) => b.studyDate.localeCompare(a.studyDate));
+        return complete.length > 0 ? complete : null;
       } catch (error) {
         console.warn('Substrate could not discover patient priors', error);
-        return fallback;
+        return null;
       }
     })();
-
-    return cachedInventory;
+    inFlight = { currentStudyUid, promise };
+    const discovered = await promise;
+    if (inFlight?.promise === promise) inFlight = null;
+    if (discovered) cachedInventory = { currentStudyUid, studies: discovered };
+    return discovered ?? fallback;
   };
 
   const describe = (series: InventorySeries): JsonObject => {

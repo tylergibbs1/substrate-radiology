@@ -68,20 +68,6 @@ export function groupBursts(events: ToolCallEvent[]): ToolCallEvent[][] {
   return groups;
 }
 
-export function summarizeBurst(events: ToolCallEvent[]): string {
-  const seen = new Set<string>();
-  const phrases: string[] = [];
-  for (const event of events) {
-    const key = event.activity
-      ? `${event.activity.action}:${event.activity.parameter}:${event.activity.result}`
-      : `${event.tool}:${event.argsSummary}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    phrases.push(finishedPhrase(event));
-  }
-  return phrases.join('. ');
-}
-
 export type IslandCommand = {
   label: string;
   disabled: boolean;

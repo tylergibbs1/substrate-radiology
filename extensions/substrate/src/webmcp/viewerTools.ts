@@ -12,11 +12,14 @@ import {
   restoreVersion,
   signature,
   signatureIsStale,
+  type MeasurementSnapshot,
+  type ReportEvidenceSnapshot,
   type Sentence,
 } from '../engine/report';
-import { observeTool } from './observeTool';
+import { observeTool as observeToolWithSession } from './observeTool';
 import { createStudyInventory } from './studyInventory';
 import { refuse, type JsonObject, type WebMcpTool } from './spec';
+import { withInputValidation } from './validation';
 import {
   acquiredOn,
   activeDataSource,
@@ -26,6 +29,23 @@ import {
   viewportReady,
   type ViewerDependencies,
 } from './viewerContext';
+
+type VoiRange = { lower?: number; upper?: number };
+
+const VOI_TOLERANCE = 1e-6;
+
+function matchesWindowLevel(range: VoiRange | undefined, window: number, level: number) {
+  if (typeof range?.lower !== 'number' || typeof range.upper !== 'number') return false;
+  // Cornerstone uses DICOM's inclusive LINEAR VOI range. Convert the applied
+  // range back to the user-facing window/level values instead of comparing it
+  // with the non-inclusive center +/- width / 2 approximation.
+  const appliedWindow = Math.abs(range.upper - range.lower) + 1;
+  const appliedLevel = (range.lower + range.upper + 1) / 2;
+  return (
+    Math.abs(appliedWindow - window) <= VOI_TOLERANCE &&
+    Math.abs(appliedLevel - level) <= VOI_TOLERANCE
+  );
+}
 
 /**
  * The viewer tool surface.
@@ -50,6 +70,20 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
   autonomy.setViewportResolver(() => viewportGrid?.getState().activeViewportId);
   const inventory = createStudyInventory(displaySet, activeDataSource(deps));
   const trackedSeries = () => tracked?.getTrackedSeries() ?? [];
+  const ensureActive = (signal?: AbortSignal) => {
+    if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
+  };
+  const observeTool = (
+    name: Parameters<typeof observeToolWithSession>[0],
+    affected: Parameters<typeof observeToolWithSession>[1],
+    run: Parameters<typeof observeToolWithSession>[2]
+  ) => observeToolWithSession(name, affected, run, deps.sessionSignal);
+  const activeStudyUid = () => {
+    const state = viewportGrid?.getState();
+    const active = state?.activeViewportId;
+    const uid = active ? state?.viewports.get(active)?.displaySetInstanceUIDs?.[0] : undefined;
+    return uid ? (displaySet?.getDisplaySetByUID(uid)?.StudyInstanceUID ?? '') : '';
+  };
 
   const getContext: WebMcpTool = {
     name: 'get_context',
@@ -70,9 +104,8 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
       () => [],
       async () => {
         const state = viewportGrid?.getState();
-        const sets = displaySet?.getActiveDisplaySets() ?? [];
-        const studies = await inventory.get();
-        const currentStudyUid = sets[0]?.StudyInstanceUID ?? studies[0]?.studyUid ?? '';
+        const currentStudyUid = activeStudyUid();
+        const studies = await inventory.get(currentStudyUid);
         const measurements = measurement?.getMeasurements() ?? [];
         const suggested =
           studies.length === 0
@@ -161,6 +194,8 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
       properties: {
         study_uid: {
           type: 'string',
+          minLength: 1,
+          maxLength: 64,
           description: 'Limit to one study. Omit to list every study that is loaded.',
         },
       },
@@ -171,7 +206,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
       () => [],
       async input => {
         const wanted = typeof input.study_uid === 'string' ? input.study_uid : '';
-        const studies = (await inventory.get()).filter(
+        const studies = (await inventory.get(activeStudyUid())).filter(
           study => !wanted || study.studyUid === wanted
         );
         if (studies.length === 0) {
@@ -212,6 +247,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
         },
         timepoint: {
           type: 'string',
+          minLength: 1,
           description: 'Limit to a study uid or study date. Omit for every timepoint.',
         },
       },
@@ -250,23 +286,37 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
     inputSchema: {
       type: 'object',
       properties: {
-        viewport: { type: 'string', description: 'Viewport id. Omit for the active one.' },
+        viewport: {
+          type: 'string',
+          minLength: 1,
+          description: 'Viewport id. Omit for the active one.',
+        },
         measurement_id: {
           type: 'string',
+          minLength: 1,
           description: 'Jump to the slice a measurement was made on, and frame it.',
         },
-        slice_index: { type: 'number', description: 'Zero-based image index in the series.' },
+        slice_index: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Zero-based image index in the series.',
+        },
         slice_location_mm: {
           type: 'number',
           description: 'Patient-space slice location in millimetres; nearest slice wins.',
         },
       },
+      oneOf: [
+        { required: ['measurement_id'] },
+        { required: ['slice_index'] },
+        { required: ['slice_location_mm'] },
+      ],
       additionalProperties: false,
     },
     execute: observeTool(
       'navigate',
       input => (typeof input.measurement_id === 'string' ? [input.measurement_id] : []),
-      async (input, _signal, setUndo) => {
+      async (input, signal, setUndo) => {
         const state = viewportGrid?.getState();
         const viewportId =
           typeof input.viewport === 'string' && input.viewport
@@ -277,6 +327,13 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             'NO_VIEWPORT',
             'There is no viewport to move.',
             'Open a study first, then call get_context to read the active viewport id.'
+          );
+        }
+        if (!state?.viewports.has(viewportId)) {
+          return refuse(
+            'NO_SUCH_VIEWPORT',
+            `There is no viewport with id ${viewportId}.`,
+            'Call get_context and use one of the pane viewport ids it returns.'
           );
         }
         const previousIndex = cornerstone
@@ -298,6 +355,20 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
               'Call list_measurements to get current ids; they change when a measurement is deleted.'
             );
           }
+          const shownUid = state.viewports.get(viewportId)?.displaySetInstanceUIDs?.[0];
+          const shownSeries = shownUid
+            ? displaySet?.getDisplaySetByUID(shownUid)?.SeriesInstanceUID
+            : '';
+          if (found.referenceSeriesUID && shownSeries !== found.referenceSeriesUID) {
+            return refuse(
+              'MEASUREMENT_NOT_IN_VIEWPORT',
+              'That measurement is not on the series displayed in the requested viewport.',
+              'Call get_context and choose the pane showing the measurement series.'
+            );
+          }
+          ensureActive(signal);
+          viewportGrid?.setActiveViewportId(viewportId);
+          ensureActive(signal);
           measurement?.jumpToMeasurement(viewportId, input.measurement_id);
           setUndo?.(restorePosition);
           return { viewport: viewportId, jumped_to: input.measurement_id };
@@ -338,6 +409,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
               'Wait a moment and call navigate again; hanging a layout takes a second to settle.'
             );
           }
+          ensureActive(signal);
           // jumpToImage wants the grid viewport object and reads `.id` off it,
           // so passing the id as a string lands as undefined and throws
           // "Unsupported viewport type" from deep inside Cornerstone.
@@ -351,6 +423,17 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
               'SLICE_OUT_OF_RANGE',
               error instanceof Error ? error.message : 'That slice does not exist in this series.',
               'Call get_study for the image_count of the series, and use a zero-based index below it.'
+            );
+          }
+          const resultingIndex = cornerstone
+            ?.getCornerstoneViewport(viewportId)
+            ?.getCurrentImageIdIndex?.();
+          if (Number.isFinite(resultingIndex) && resultingIndex !== targetIndex) {
+            restorePosition();
+            return refuse(
+              'NAVIGATION_NOT_APPLIED',
+              `Viewport ${viewportId} did not reach slice ${targetIndex}.`,
+              'The prior position was restored; wait for the viewport and try again.'
             );
           }
           setUndo?.(restorePosition);
@@ -380,24 +463,36 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
     inputSchema: {
       type: 'object',
       properties: {
-        viewport: { type: 'string', description: 'Viewport id. Omit for the active one.' },
+        viewport: {
+          type: 'string',
+          minLength: 1,
+          description: 'Viewport id. Omit for the active one.',
+        },
         preset: {
           type: 'string',
+          enum: [...CT_PRESETS.keys()],
           description: 'A window/level preset name, for example lung, soft tissue, bone, brain.',
         },
         reset_zoom_pan: { type: 'boolean', description: 'Reset zoom and pan to the default.' },
         invert: { type: 'boolean', description: 'Set image inversion on or off.' },
         orientation: {
           type: 'string',
+          enum: ['axial', 'coronal', 'sagittal'],
           description: 'MPR orientation: axial, coronal, or sagittal.',
         },
       },
+      anyOf: [
+        { required: ['preset'] },
+        { required: ['reset_zoom_pan'] },
+        { required: ['invert'] },
+        { required: ['orientation'] },
+      ],
       additionalProperties: false,
     },
     execute: observeTool(
       'set_display',
       () => [],
-      async (input, _signal, setUndo) => {
+      async (input, signal, setUndo) => {
         const state = viewportGrid?.getState();
         const viewportId =
           typeof input.viewport === 'string' && input.viewport
@@ -410,6 +505,13 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             'Open a study first, then call get_context.'
           );
         }
+        if (!state?.viewports.has(viewportId)) {
+          return refuse(
+            'NO_SUCH_VIEWPORT',
+            `There is no viewport with id ${viewportId}.`,
+            'Call get_context and use one of the pane viewport ids it returns.'
+          );
+        }
         if (!(await viewportReady(cornerstone, viewportId))) {
           return refuse(
             'VIEWPORT_NOT_READY',
@@ -417,7 +519,15 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             'Wait a moment and call set_display again.'
           );
         }
+        ensureActive(signal);
         const csViewport = cornerstone?.getCornerstoneViewport(viewportId);
+        if (!csViewport) {
+          return refuse(
+            'VIEWPORT_NOT_READY',
+            'That viewport is unavailable.',
+            'Wait and try again.'
+          );
+        }
         const previousProperties = csViewport?.getProperties?.();
         const previousCamera = csViewport?.getCamera?.();
         const previousOrientation = cornerstone?.getOrientation?.(viewportId);
@@ -455,29 +565,70 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
               `Use one of: ${[...CT_PRESETS.keys()].join(', ')}.`
             );
           }
-          deps.commandsManager.runCommand('setViewportWindowLevel', {
-            viewportId,
-            windowWidth: preset.window,
-            windowCenter: preset.level,
-          });
-          applied.push(`${key} window`);
+          const beforeVoi = previousProperties as { voiRange?: VoiRange } | undefined;
+          if (!matchesWindowLevel(beforeVoi?.voiRange, preset.window, preset.level)) {
+            deps.commandsManager.runCommand('setViewportWindowLevel', {
+              viewportId,
+              windowWidth: preset.window,
+              windowCenter: preset.level,
+            });
+          }
+          const appliedProperties = csViewport.getProperties?.() as
+            | { voiRange?: VoiRange }
+            | undefined;
+          if (!matchesWindowLevel(appliedProperties?.voiRange, preset.window, preset.level)) {
+            restoreDisplay();
+            return refuse(
+              'DISPLAY_NOT_APPLIED',
+              'The viewport did not apply the requested window preset.',
+              'The requested display state was rolled back; wait for the viewport and try again.'
+            );
+          }
+          if (!matchesWindowLevel(beforeVoi?.voiRange, preset.window, preset.level)) {
+            applied.push(`${key} window`);
+          }
         }
         if (input.reset_zoom_pan === true) {
           viewportGrid?.setActiveViewportId(viewportId);
           deps.commandsManager.runCommand('resetViewport');
-          applied.push('reset view');
+          const resetCamera = csViewport.getCamera?.();
+          if (JSON.stringify(resetCamera) !== JSON.stringify(previousCamera))
+            applied.push('reset view');
         }
         if (typeof input.invert === 'boolean') {
-          csViewport?.setProperties?.({ invert: input.invert });
-          csViewport?.render?.();
-          applied.push(input.invert ? 'inverted' : 'not inverted');
+          if ((previousProperties as { invert?: boolean } | undefined)?.invert !== input.invert) {
+            csViewport?.setProperties?.({ invert: input.invert });
+            csViewport?.render?.();
+            if (
+              (csViewport.getProperties?.() as { invert?: boolean } | undefined)?.invert !==
+              input.invert
+            ) {
+              restoreDisplay();
+              return refuse(
+                'DISPLAY_NOT_APPLIED',
+                'The viewport did not apply inversion.',
+                'The prior display was restored.'
+              );
+            }
+            applied.push(input.invert ? 'inverted' : 'not inverted');
+          }
         }
         if (requestedOrientation) {
-          deps.commandsManager.runCommand('setViewportOrientation', {
-            viewportId,
-            orientation: requestedOrientation.toUpperCase(),
-          });
-          applied.push(`${requestedOrientation} orientation`);
+          if (previousOrientation?.toLowerCase() !== requestedOrientation) {
+            deps.commandsManager.runCommand('setViewportOrientation', {
+              viewportId,
+              orientation: requestedOrientation.toUpperCase(),
+            });
+            if (cornerstone?.getOrientation?.(viewportId)?.toLowerCase() !== requestedOrientation) {
+              restoreDisplay();
+              return refuse(
+                'DISPLAY_NOT_APPLIED',
+                'The viewport did not apply the requested orientation.',
+                'The prior display was restored; use a reconstructable series and try again.'
+              );
+            }
+            applied.push(`${requestedOrientation} orientation`);
+          }
         }
         if (applied.length === 0) {
           return refuse(
@@ -506,10 +657,17 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
       type: 'object',
       required: ['rows', 'cols'],
       properties: {
-        rows: { type: 'number', description: 'Number of viewport rows.' },
-        cols: { type: 'number', description: 'Number of viewport columns.' },
+        rows: { type: 'integer', minimum: 1, maximum: 9, description: 'Number of viewport rows.' },
+        cols: {
+          type: 'integer',
+          minimum: 1,
+          maximum: 9,
+          description: 'Number of viewport columns.',
+        },
         viewports: {
           type: 'array',
+          minItems: 1,
+          maxItems: 9,
           description:
             'What to show in each pane, in reading order (left to right, top to bottom). ' +
             'Omit to keep whatever is already displayed.',
@@ -519,14 +677,18 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             properties: {
               series_uid: {
                 type: 'string',
+                minLength: 1,
+                maxLength: 64,
                 description: 'A series_uid from get_study.',
               },
               orientation: {
                 type: 'string',
+                enum: ['axial', 'coronal', 'sagittal'],
                 description: 'Optional axial, coronal, or sagittal MPR orientation.',
               },
               preset: {
                 type: 'string',
+                enum: [...CT_PRESETS.keys()],
                 description: 'Optional window preset such as lung or soft tissue.',
               },
             },
@@ -539,7 +701,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
     execute: observeTool(
       'hang_layout',
       () => [],
-      async (input, _signal, setUndo) => {
+      async (input, signal, setUndo) => {
         const rows = Number(input.rows);
         const cols = Number(input.cols);
         if (!Number.isFinite(rows) || !Number.isFinite(cols) || rows < 1 || cols < 1) {
@@ -562,7 +724,8 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
         // hang they have to put back by hand.
         const requested = Array.isArray(input.viewports) ? input.viewports : [];
         let sets = displaySet?.getActiveDisplaySets() ?? [];
-        const studies = await inventory.get();
+        const studies = await inventory.get(activeStudyUid());
+        ensureActive(signal);
         const resolved: {
           seriesUid: string;
           displaySetUid: string;
@@ -607,6 +770,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
                     StudyInstanceUID: discovered.studyUid,
                   })
                 );
+                ensureActive(signal);
                 sets = displaySet?.getActiveDisplaySets() ?? [];
                 match = sets.find(candidate => candidate.SeriesInstanceUID === seriesUid);
               } catch (error) {
@@ -652,6 +816,28 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
               ...(viewport.displaySetInstanceUIDs ?? []),
             ])
           : [];
+        const restoreLayout = async () => {
+          if (!priorLayout) return;
+          deps.commandsManager.runCommand('setViewportGridLayout', {
+            numRows: priorLayout.rows,
+            numCols: priorLayout.cols,
+          });
+          const wanted = priorLayout.rows * priorLayout.cols;
+          let ids: string[] = [];
+          for (let attempt = 0; attempt < 60; attempt += 1) {
+            const restored = viewportGrid?.getState();
+            ids = restored ? [...restored.viewports.keys()] : [];
+            if (ids.length >= wanted) break;
+            await new Promise(resolve => setTimeout(resolve, 50));
+          }
+          const updates = priorPanes
+            .map((displaySetInstanceUIDs, index) => ({
+              viewportId: ids[index],
+              displaySetInstanceUIDs,
+            }))
+            .filter(entry => Boolean(entry.viewportId) && entry.displaySetInstanceUIDs.length > 0);
+          if (updates.length > 0) await viewportGrid?.setDisplaySetsForViewports(updates);
+        };
 
         for (const viewportId of before ? [...before.viewports.keys()] : []) {
           if (!(await viewportReady(cornerstone, viewportId))) {
@@ -661,6 +847,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
               'Wait a moment and call hang_layout again.'
             );
           }
+          ensureActive(signal);
         }
 
         const readyEvent = viewportGrid?.EVENTS?.VIEWPORTS_READY;
@@ -676,17 +863,22 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             finished = true;
             window.clearTimeout(timer);
             subscription?.unsubscribe();
+            signal?.removeEventListener('abort', finish);
             resolve();
           };
           const timer = window.setTimeout(finish, 3000);
+          signal?.addEventListener('abort', finish, { once: true });
           subscription = viewportGrid.subscribe(readyEvent, finish);
         });
 
+        ensureActive(signal);
+        setUndo?.(restoreLayout);
         deps.commandsManager.runCommand('setViewportGridLayout', {
           numRows: rows,
           numCols: cols,
         });
         await nextGridReady;
+        ensureActive(signal);
 
         // The grid rebuilds its viewport ids asynchronously. A single microtask
         // is not enough — waiting only that long assigns the series to viewports
@@ -701,6 +893,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             viewportIds = state ? [...state.viewports.keys()] : [];
             if (viewportIds.length >= wanted) break;
             await new Promise(resolve => setTimeout(resolve, 50));
+            ensureActive(signal);
           }
           const updates = resolved
             .map((entry, index) => ({
@@ -709,6 +902,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             }))
             .filter(entry => Boolean(entry.viewportId));
           if (updates.length < resolved.length) {
+            await restoreLayout();
             return refuse(
               'GRID_NOT_READY',
               'The viewport grid did not finish rebuilding, so the series were not placed.',
@@ -716,6 +910,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             );
           }
           await viewportGrid?.setDisplaySetsForViewports(updates);
+          ensureActive(signal);
         }
 
         const finalState = viewportGrid?.getState();
@@ -724,11 +919,20 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
           const viewportId = finalIds[index];
           if (!viewportId || (!entry.orientation && !entry.preset)) continue;
           await viewportReady(cornerstone, viewportId);
+          ensureActive(signal);
           if (entry.orientation) {
             deps.commandsManager.runCommand('setViewportOrientation', {
               viewportId,
               orientation: entry.orientation.toUpperCase(),
             });
+            if (cornerstone?.getOrientation?.(viewportId)?.toLowerCase() !== entry.orientation) {
+              await restoreLayout();
+              return refuse(
+                'DISPLAY_NOT_APPLIED',
+                `Pane ${index + 1} did not apply the requested orientation.`,
+                'The prior layout was restored.'
+              );
+            }
           }
           if (entry.preset) {
             const values = CT_PRESETS.get(entry.preset)!;
@@ -737,32 +941,31 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
               windowWidth: values.window,
               windowCenter: values.level,
             });
+            const properties = cornerstone
+              ?.getCornerstoneViewport(viewportId)
+              ?.getProperties?.() as { voiRange?: VoiRange } | undefined;
+            if (!matchesWindowLevel(properties?.voiRange, values.window, values.level)) {
+              await restoreLayout();
+              return refuse(
+                'DISPLAY_NOT_APPLIED',
+                `Pane ${index + 1} did not apply the requested window preset.`,
+                'The prior layout was restored.'
+              );
+            }
           }
         }
-        if (priorLayout) {
-          setUndo?.(async () => {
-            deps.commandsManager.runCommand('setViewportGridLayout', {
-              numRows: priorLayout.rows,
-              numCols: priorLayout.cols,
-            });
-            const wanted = priorLayout.rows * priorLayout.cols;
-            let ids: string[] = [];
-            for (let attempt = 0; attempt < 60; attempt += 1) {
-              const restored = viewportGrid?.getState();
-              ids = restored ? [...restored.viewports.keys()] : [];
-              if (ids.length >= wanted) break;
-              await new Promise(resolve => setTimeout(resolve, 50));
-            }
-            const updates = priorPanes
-              .map((displaySetInstanceUIDs, index) => ({
-                viewportId: ids[index],
-                displaySetInstanceUIDs,
-              }))
-              .filter(
-                entry => Boolean(entry.viewportId) && entry.displaySetInstanceUIDs.length > 0
-              );
-            if (updates.length > 0) await viewportGrid?.setDisplaySetsForViewports(updates);
-          });
+        const placed = resolved.every(
+          (entry, index) =>
+            finalState?.viewports.get(finalIds[index])?.displaySetInstanceUIDs?.[0] ===
+            entry.displaySetUid
+        );
+        if (!placed) {
+          await restoreLayout();
+          return refuse(
+            'SERIES_NOT_PLACED',
+            'The rebuilt grid did not retain every requested series.',
+            'The prior layout was restored; wait for the viewer and try again.'
+          );
         }
         return {
           rows,
@@ -797,11 +1000,18 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
       'to propose a measurement of your own.',
     inputSchema: {
       type: 'object',
-      required: ['from_measurement_id'],
+      required: ['from_measurement_id', 'target_series_uid'],
       properties: {
         from_measurement_id: {
           type: 'string',
+          minLength: 1,
           description: 'A measurement_id from list_measurements. This is what gets copied.',
+        },
+        target_series_uid: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 64,
+          description: 'The exact destination series_uid from get_study.',
         },
         target_study_uid: {
           type: 'string',
@@ -823,7 +1033,8 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
     execute: observeTool(
       'propose_measurement',
       input => (typeof input.from_measurement_id === 'string' ? [input.from_measurement_id] : []),
-      async (input, _signal, setUndo) => {
+      async (input, signal, setUndo) => {
+        ensureActive(signal);
         const sourceId = String(input.from_measurement_id ?? '');
         const source = measurement?.getMeasurement(sourceId);
         if (!source) {
@@ -845,39 +1056,36 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
         let targetStudy = String(input.target_study_uid ?? '');
         if (!targetStudy && typeof input.target_timepoint === 'string') {
           const wanted = input.target_timepoint;
-          const studies = await inventory.get();
+          const studies = await inventory.get(activeStudyUid());
+          ensureActive(signal);
           targetStudy =
             studies.find(study => study.studyUid === wanted || study.studyDate === wanted)
               ?.studyUid ?? '';
         }
-        if (!targetStudy) {
+        const targetSeriesUid = String(input.target_series_uid ?? '');
+        const target = (displaySet?.getActiveDisplaySets() ?? []).find(
+          entry => entry.SeriesInstanceUID === targetSeriesUid
+        );
+        if (!target) {
           return refuse(
-            'NO_TARGET_STUDY',
-            'There is no destination timepoint to copy onto.',
-            'Pass target_study_uid or a target_timepoint from get_study.'
+            'TARGET_SERIES_NOT_LOADED',
+            `The requested destination series ${targetSeriesUid} is not loaded.`,
+            'Call get_study and hang_layout, then pass the exact loaded target_series_uid.'
           );
         }
+        if (targetStudy && target.StudyInstanceUID !== targetStudy) {
+          return refuse(
+            'TARGET_SERIES_STUDY_MISMATCH',
+            'The requested series does not belong to the requested destination study.',
+            'Use the study_uid and series_uid from the same get_study result.'
+          );
+        }
+        targetStudy = target.StudyInstanceUID;
         if (targetStudy === source.referenceStudyUID) {
           return refuse(
             'SAME_STUDY',
             'That is the study the measurement is already on.',
             'Pass the other timepoint, from get_study.'
-          );
-        }
-
-        // The target series: the largest reconstruction in that study, which is
-        // the diagnostic one rather than a scout or a derived object.
-        const candidates = (displaySet?.getActiveDisplaySets() ?? []).filter(
-          entry => entry.StudyInstanceUID === targetStudy
-        );
-        const target = candidates
-          .filter(entry => (entry.numImageFrames ?? 0) > 1)
-          .sort((a, b) => (b.numImageFrames ?? 0) - (a.numImageFrames ?? 0))[0];
-        if (!target) {
-          return refuse(
-            'NO_TARGET_SERIES',
-            'That study has no multi-slice series to copy onto.',
-            'Check get_study for the studies that are loaded and their image counts.'
           );
         }
 
@@ -896,6 +1104,22 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
               'guessing would put the mark in the wrong place.'
           );
         }
+        const sourceFrame = source.FrameOfReferenceUID ?? '';
+        const targetFrames = new Set(instances.map(instance => instance.frameOfReferenceUID));
+        if (!sourceFrame || targetFrames.has('')) {
+          return refuse(
+            'MISSING_FRAME_OF_REFERENCE',
+            'The source or destination is missing FrameOfReferenceUID, so geometry cannot be copied safely.',
+            'Have the radiologist measure this timepoint directly.'
+          );
+        }
+        if (targetFrames.size !== 1 || !targetFrames.has(sourceFrame)) {
+          return refuse(
+            'FRAME_OF_REFERENCE_MISMATCH',
+            'The source and destination do not share a frame of reference and no registration transform is available.',
+            'Have the radiologist measure this timepoint directly; raw patient coordinates cannot be copied between frames.'
+          );
+        }
 
         const normal = source.metadata?.viewPlaneNormal ?? [0, 0, -1];
         const placement = findTargetSlice(
@@ -911,6 +1135,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             'The two studies may not overlap anatomically.'
           );
         }
+        ensureActive(signal);
 
         const requestedLabel = typeof input.label === 'string' ? input.label.trim() : '';
         const label = requestedLabel || source.label || 'proposed';
@@ -938,8 +1163,13 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
         // Naming the human-made source is bookkeeping, not image interpretation. It is
         // essential for compare_with_prior, which deliberately pairs timepoints by the
         // radiologist's label rather than guessing correspondence from pixels.
-        if (requestedLabel && requestedLabel !== source.label) {
-          measurement?.update(source.uid, { ...source, label: requestedLabel }, true);
+        try {
+          if (requestedLabel && requestedLabel !== source.label) {
+            measurement?.update(source.uid, { ...source, label: requestedLabel }, true);
+          }
+        } catch (error) {
+          rejectProposal(annotationUID);
+          throw error;
         }
         setUndo?.(() => {
           rejectProposal(annotationUID);
@@ -956,12 +1186,9 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
           target_study_uid: target.StudyInstanceUID,
           target_series_uid: target.SeriesInstanceUID,
           offset_mm: placement.offsetMm,
-          aligned: placement.aligned,
+          aligned: true,
           state: 'proposed',
-          note: placement.aligned
-            ? 'Placed at the matching position. The radiologist accepts or adjusts it.'
-            : 'The two studies do not share a frame of reference, so this is a nearest-slice ' +
-              'estimate. It is worth checking before accepting.',
+          note: 'Placed at the matching position in the same frame of reference. The radiologist accepts or adjusts it.',
         };
       }
     ),
@@ -981,8 +1208,10 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
       properties: {
         labels: {
           type: 'array',
+          minItems: 1,
+          maxItems: 64,
           description: 'Only compare these labels. Omit to compare everything labelled.',
-          items: { type: 'string' },
+          items: { type: 'string', minLength: 1 },
         },
       },
       additionalProperties: false,
@@ -1086,6 +1315,8 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
       properties: {
         template: {
           type: 'string',
+          minLength: 1,
+          maxLength: 256,
           description: 'The report shape, for example "chest CT, longitudinal".',
         },
         note_to_signer: {
@@ -1094,6 +1325,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
         },
         sentences: {
           type: 'array',
+          minItems: 1,
           description: 'The report, in order.',
           items: {
             type: 'object',
@@ -1101,13 +1333,15 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             properties: {
               section: {
                 type: 'string',
+                minLength: 1,
                 description: 'Which part of the report, for example Findings or Impression.',
               },
-              text: { type: 'string', description: 'One sentence.' },
+              text: { type: 'string', minLength: 1, maxLength: 4000, description: 'One sentence.' },
               cites: {
                 type: 'array',
+                minItems: 1,
                 description: 'measurement_ids this sentence rests on.',
-                items: { type: 'string' },
+                items: { type: 'string', minLength: 1 },
               },
               replaces_sentence_id: {
                 type: 'string',
@@ -1123,19 +1357,25 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
         },
         sections: {
           type: 'array',
+          minItems: 1,
           description: 'Structured report sections; use this or the flat sentences form.',
           items: {
             type: 'object',
             required: ['name', 'sentences'],
             properties: {
-              name: { type: 'string', description: 'Section name, such as Findings.' },
+              name: {
+                type: 'string',
+                minLength: 1,
+                description: 'Section name, such as Findings.',
+              },
               sentences: {
                 type: 'array',
+                minItems: 1,
                 items: {
                   type: 'object',
                   required: ['text'],
                   properties: {
-                    text: { type: 'string' },
+                    text: { type: 'string', minLength: 1, maxLength: 4000 },
                     provenance: {
                       type: 'array',
                       items: {
@@ -1156,12 +1396,14 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
           },
         },
       },
+      oneOf: [{ required: ['sentences'] }, { required: ['sections'] }],
       additionalProperties: false,
     },
     execute: observeTool(
       'draft_report',
       () => [],
-      async (input, _signal, setUndo) => {
+      async (input, signal, setUndo) => {
+        ensureActive(signal);
         const flatRows = Array.isArray(input.sentences) ? input.sentences : [];
         const nestedRows = Array.isArray(input.sections)
           ? input.sections.flatMap(section => {
@@ -1196,7 +1438,8 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
           );
         }
 
-        const known = new Set((measurement?.getMeasurements() ?? []).map(entry => entry.uid));
+        const liveMeasurements = measurement?.getMeasurements() ?? [];
+        const known = new Set(liveMeasurements.map(entry => entry.uid));
         const previous = currentVersion();
         const revising =
           previous !== null &&
@@ -1287,6 +1530,54 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
         const flagged = sentences
           .filter(sentence => sentence.provenance.length === 0)
           .map(sentence => sentence.sentenceId);
+        const cited = new Set(
+          sentences.flatMap(sentence => sentence.provenance.map(item => item.measurementId))
+        );
+        const activeSets = displaySet?.getActiveDisplaySets() ?? [];
+        const snapshots: MeasurementSnapshot[] = liveMeasurements
+          .filter(entry => cited.has(entry.uid))
+          .map(entry => {
+            const set = activeSets.find(row => row.SeriesInstanceUID === entry.referenceSeriesUID);
+            const referencedImageId = entry.metadata?.referencedImageId ?? '';
+            const instanceIndex = referencedImageId
+              ? (set?.imageIds?.indexOf(referencedImageId) ?? -1)
+              : -1;
+            // Do not substitute the first image when the measurement lacks an
+            // exact image reference; that would bind the report to the wrong SOP.
+            const instance = instanceIndex >= 0 ? set?.instances?.[instanceIndex] : undefined;
+            return {
+              measurementId: entry.uid,
+              label: entry.label || entry.uid,
+              value: String(describeMeasurement(entry, trackedSeries(), activeSets).value ?? ''),
+              studyInstanceUid: entry.referenceStudyUID ?? set?.StudyInstanceUID ?? '',
+              seriesInstanceUid: entry.referenceSeriesUID ?? set?.SeriesInstanceUID ?? '',
+              sopInstanceUid: instance?.SOPInstanceUID ?? '',
+              sopClassUid: instance?.SOPClassUID ?? '',
+              frameOfReferenceUid: entry.FrameOfReferenceUID ?? instance?.FrameOfReferenceUID ?? '',
+              referencedImageId,
+            };
+          });
+        const contextUid = activeStudyUid();
+        const evidenceSet =
+          activeSets.find(set => set.StudyInstanceUID === contextUid) ?? activeSets[0];
+        const evidenceInstance = evidenceSet?.instances?.[0];
+        const evidence: ReportEvidenceSnapshot | null = evidenceSet
+          ? {
+              StudyInstanceUID: evidenceSet.StudyInstanceUID,
+              SeriesInstanceUID: evidenceSet.SeriesInstanceUID,
+              SOPInstanceUID: evidenceInstance?.SOPInstanceUID ?? '',
+              SOPClassUID: evidenceInstance?.SOPClassUID ?? '',
+              PatientID: evidenceInstance?.PatientID,
+              PatientName: evidenceInstance?.PatientName,
+              PatientBirthDate: evidenceInstance?.PatientBirthDate,
+              PatientSex: evidenceInstance?.PatientSex,
+              StudyDate: evidenceInstance?.StudyDate ?? evidenceSet.StudyDate,
+              StudyTime: evidenceInstance?.StudyTime,
+              StudyID: evidenceInstance?.StudyID,
+              AccessionNumber: evidenceInstance?.AccessionNumber,
+              StudyDescription: evidenceInstance?.StudyDescription,
+            }
+          : null;
 
         const version = await addVersion(
           String(input.template ?? 'report'),
@@ -1297,7 +1588,8 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             owner: 'active-reader',
             delegate: 'substrate',
           },
-          typeof input.note_to_signer === 'string' ? input.note_to_signer : undefined
+          typeof input.note_to_signer === 'string' ? input.note_to_signer : undefined,
+          { measurements: snapshots, evidence, signal }
         );
         setUndo?.(() => {
           if (previous) void restoreVersion(previous.version);
@@ -1314,7 +1606,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             flagged.length > 0
               ? `${flagged.length} sentence(s) cite no measurement. The radiologist will be shown ` +
                 'them separately and has to accept each one before signing.'
-              : 'Every sentence cites a measurement.',
+              : 'Every sentence cites a measurement. The radiologist still has to accept every agent-authored sentence before signing.',
         };
       }
     ),
@@ -1328,16 +1620,20 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
       'pending — it does not wait, and it does not sign anything. Only the person can ' +
       'do that, in the dialog this opens. Poll get_context to see whether they signed, ' +
       'edited, or declined. This is the only consequential action in the tool set.',
+    annotations: { consequentialHint: true },
     inputSchema: {
       type: 'object',
       required: ['summary_for_signer'],
       properties: {
         draft_id: {
-          type: 'number',
+          type: 'integer',
+          minimum: 1,
           description: 'Report version to present. Omit for the current draft.',
         },
         summary_for_signer: {
           type: 'string',
+          minLength: 1,
+          maxLength: 1000,
           description:
             'One or two sentences telling the radiologist what they are about to put ' +
             'their name to, and anything you want them to check.',
@@ -1348,7 +1644,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
     execute: observeTool(
       'request_signature',
       () => [],
-      async (input, _signal, setUndo) => {
+      async (input, signal, setUndo) => {
         const version = currentVersion();
         if (!version) {
           return refuse('NO_REPORT', 'There is no report to sign.', 'Call draft_report first.');
@@ -1360,6 +1656,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             `The current draft is version ${version.version}; review that version before requesting a signature.`
           );
         }
+        ensureActive(signal);
         const opened = requestSignature(String(input.summary_for_signer ?? ''));
         if (opened) setUndo?.(() => dismissRequest());
         return {
@@ -1387,13 +1684,15 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
   ];
 
   return tools.map(tool =>
-    autonomy.isConfirmable(tool.name)
-      ? {
-          ...tool,
-          description:
-            `${tool.description} At Assist, this call waits for the radiologist to Apply or ` +
-            'Skip it in the viewer. A skip is final; do not retry unless they ask again.',
-        }
-      : tool
+    withInputValidation(
+      autonomy.isConfirmable(tool.name)
+        ? {
+            ...tool,
+            description:
+              `${tool.description} At Assist, this call waits for the radiologist to Apply or ` +
+              'Skip it in the viewer. A skip is final; do not retry unless they ask again.',
+          }
+        : tool
+    )
   );
 }

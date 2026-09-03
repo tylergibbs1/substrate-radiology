@@ -1,21 +1,12 @@
 import dcmjs from 'dcmjs';
 
 import {
-  currentVersion,
+  signedVersion,
   signature,
   signatureIsStale,
   type ReportVersion,
   type Signature,
 } from './report';
-
-type Measurement = {
-  uid?: string;
-  label?: string;
-  displayText?: string | { primary?: string[] };
-  referenceSeriesUID?: string;
-  referenceStudyUID?: string;
-  metadata?: { referencedImageId?: string };
-};
 
 type Evidence = {
   StudyInstanceUID: string;
@@ -33,20 +24,6 @@ type Evidence = {
   StudyDescription?: string;
 };
 
-type ExportServices = {
-  measurementService?: {
-    getMeasurement?: (uid: string) => Measurement | undefined;
-  };
-  displaySetService?: {
-    getActiveDisplaySets?: () => Array<{
-      StudyInstanceUID?: string;
-      SeriesInstanceUID?: string;
-      SOPClassHandlerId?: string;
-      instances?: Array<Record<string, unknown>>;
-    }>;
-  };
-};
-
 type ExportPacket = {
   version: ReportVersion;
   signed: Signature;
@@ -55,51 +32,22 @@ type ExportPacket = {
   evidence: Evidence;
 };
 
-function requirePacket(services: Record<string, unknown>): ExportPacket {
-  const version = currentVersion();
+function requirePacket(_services: Record<string, unknown>): ExportPacket {
+  const version = signedVersion();
   const signed = signature();
   if (!version || !signed) throw new Error('Sign the report before exporting it.');
 
-  const typed = services as ExportServices;
   const measurements = new Map<string, { label: string; value: string }>();
-  for (const sentence of version.sentences) {
-    for (const citation of sentence.provenance) {
-      if (measurements.has(citation.measurementId)) continue;
-      const found = typed.measurementService?.getMeasurement?.(citation.measurementId);
-      const display = found?.displayText;
-      const value =
-        typeof display === 'string'
-          ? display
-          : Array.isArray(display?.primary)
-            ? display.primary.join(' ')
-            : 'Value unavailable';
-      measurements.set(citation.measurementId, {
-        label: found?.label || citation.measurementId,
-        value,
-      });
-    }
+  for (const snapshot of version.measurements) {
+    measurements.set(snapshot.measurementId, { label: snapshot.label, value: snapshot.value });
   }
 
-  const displaySet = typed.displaySetService?.getActiveDisplaySets?.()[0];
-  const instance = displaySet?.instances?.[0] ?? {};
-  const value = (key: string): string => String(instance[key] ?? '');
-  const evidence: Evidence = {
-    StudyInstanceUID: value('StudyInstanceUID') || displaySet?.StudyInstanceUID || '',
-    SeriesInstanceUID: value('SeriesInstanceUID') || displaySet?.SeriesInstanceUID || '',
-    SOPInstanceUID: value('SOPInstanceUID'),
-    SOPClassUID: value('SOPClassUID') || '1.2.840.10008.5.1.4.1.1.2',
-    PatientID: value('PatientID'),
-    PatientName: value('PatientName'),
-    PatientBirthDate: value('PatientBirthDate'),
-    PatientSex: value('PatientSex'),
-    StudyDate: value('StudyDate'),
-    StudyTime: value('StudyTime'),
-    StudyID: value('StudyID'),
-    AccessionNumber: value('AccessionNumber'),
-    StudyDescription: value('StudyDescription'),
-  };
+  const evidence = version.evidence as Evidence | null;
+  if (!evidence) throw new Error('The signed report has no immutable source-image evidence.');
   if (!evidence.StudyInstanceUID || !evidence.SeriesInstanceUID || !evidence.SOPInstanceUID) {
-    throw new Error('The source images are still loading; wait for the study and export again.');
+    throw new Error(
+      'The signed report has incomplete source-image evidence and cannot be exported.'
+    );
   }
 
   return { version, signed, stale: signatureIsStale(), measurements, evidence };
@@ -125,7 +73,7 @@ function code(value: string, meaning: string) {
 }
 
 /** A real DICOM Part 10 Comprehensive 3D SR containing the report and provenance. */
-function buildDicomSr(services: Record<string, unknown>): Blob {
+export function buildDicomSr(services: Record<string, unknown>): Blob {
   const packet = requirePacket(services);
   const { ContainerContentItem, TextContentItem, PNameContentItem } = dcmjs.sr.valueTypes;
   const root = new ContainerContentItem({
@@ -259,7 +207,7 @@ function studyDate(text: string | undefined): string {
 }
 
 /** Small dependency-free PDF writer: selectable text, pagination and a verifiable footer. */
-function buildPdf(services: Record<string, unknown>): Blob {
+export function buildPdf(services: Record<string, unknown>): Blob {
   const packet = requirePacket(services);
   const lines: PdfLine[] = [
     { text: 'SUBSTRATE / SIGNED REPORT', size: 9, bold: true, color: '0.15 0.45 0.42' },
@@ -378,11 +326,11 @@ function buildPdf(services: Record<string, unknown>): Blob {
 }
 
 export function exportPdf(services: Record<string, unknown>): void {
-  const version = currentVersion();
+  const version = signedVersion();
   download(buildPdf(services), `Substrate-report-v${version?.version ?? 1}.pdf`);
 }
 
 export function exportDicomSr(services: Record<string, unknown>): void {
-  const version = currentVersion();
+  const version = signedVersion();
   download(buildDicomSr(services), `Substrate-report-v${version?.version ?? 1}.dcm`);
 }

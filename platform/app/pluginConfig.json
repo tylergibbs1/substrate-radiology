@@ -68,7 +68,7 @@
     },
     {
       "packageName": "@substrate/extension-substrate",
-      "default": true
+      "default": false
     }
   ],
   "modes": [
@@ -103,6 +103,10 @@
     {
       "packageName": "@ohif/mode-ultrasound-pleura-bline",
       "version": "3.0.0"
+    },
+    {
+      "packageName": "@substrate/mode-substrate",
+      "default": false
     }
   ],
   "public": [

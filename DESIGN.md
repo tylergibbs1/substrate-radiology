@@ -76,7 +76,27 @@ components:
   panel-route:
     main: work
     secondary: details
+    header: fixed
+    content: scrollable
+    footer: fixed
+    statusLane: 104px
+    statusTime: compact-relative
+    scrollbarGutter: stable
     detailsSections: preferences, timing, connection
+  panel-shell:
+    headerHeight: 44px
+    tabTarget: 44px
+    tabMark: 32px
+    content: contained
+  recent-work:
+    default: collapsed
+    summary: count
+    maxRows: 4
+    rowHeight: 36px
+  connection-row:
+    stateLane: 14ch
+    labelOverflow: ellipsis
+    stateWrap: nowrap
   card:
     backgroundColor: "{colors.surface-card}"
     textColor: "{colors.on-surface}"
@@ -123,16 +143,6 @@ components:
     textColor: "{colors.on-signal}"
     rounded: "{rounded.inner}"
     size: 40px
-  level-pill:
-    backgroundColor: "{colors.surface-card}"
-    borderColor: "{colors.on-surface-dim}"
-    textColor: "{colors.on-surface-muted}"
-    typography: "{typography.ui-md}"
-    rounded: "{rounded.inner}"
-    padding: 6px 12px
-  level-pill-active:
-    backgroundColor: "{colors.signal-mark}"
-    textColor: "{colors.on-signal}"
   input-line:
     backgroundColor: "{colors.surface-card}"
     textColor: "{colors.on-surface}"
@@ -410,7 +420,30 @@ Tables are evidence:
   contains agent state, findings/report, suggested measurements, and recent
   work. One `Details` row at the bottom enters the secondary view. Details owns
   Preferences, Timing, and Connection beneath a Back/Details header. Disclosure
-  state survives navigation between the two views.
+  state survives navigation between the two views. Both views use three owned
+  regions: a fixed header, independently scrollable content, and, when the view
+  has a route action, a fixed footer. The status line never scrolls away and the
+  Details route never drifts with clinical content. The state mark and verb own
+  a fixed `104px` lane, measured to hold `Waiting for you`, and every scrolling
+  region reserves its scrollbar gutter before it is needed. State changes and
+  expanding disclosures therefore cannot move adjacent text. Safety boundaries
+  are enforced by behavior and do not occupy the panel as explanatory copy.
+- **Panel shell:** In Substrate mode, OHIF's right-panel chrome is part of the
+  same dock rather than a separate toolbar. It has one `44px` header containing
+  the collapse control and `44px` tab targets with `32px` inset marks. The
+  header has one strong bottom rule; black tab spacers and the second separator
+  are removed. The active tab uses `surface-inset`, never signal. The panel body
+  owns the remaining height with `min-height: 0` and cannot create a second
+  page-height scroll surface. Other OHIF modes keep their native panel shell.
+- **Recent work:** Completed writes use one collapsed disclosure labelled by
+  count: `2 recent actions`. Opening it reveals at most 4 compact tool rows.
+  Each row keeps the shared lamp, action, Undo, and time lanes. The disclosure
+  is closed by default because completed work is supporting evidence, not the
+  primary task. Running work remains in the state line and plan.
+- **Connection row:** Diagnostic tool rows use one shared `14ch` state lane.
+  The tool title truncates with an ellipsis and exposes its full value on hover;
+  `Read`, `Write`, and `untrusted` never wrap. The state lane is evidence, not a
+  badge, and stays neutral.
 - **Card:** Ink surface, 20px radius, 40px padding, no border, no shadow.
   Takes one shape option, `raised` or `flush`. Flush drops the radius and the
   padding so the same content can render inside a host container, which is
@@ -426,8 +459,6 @@ Tables are evidence:
   muted on hover. Every other action.
 - **Arrow send:** 40x40, the only signal fill larger than 6px, holding an
   ink arrow. It commits an intent.
-- **Level pill:** Outlined, 12px radius; fills with signal and flips to ink
-  text when active.
 - **Input line:** No box. A single bottom hairline that brightens on focus.
   Text sits at body-lg, so typing is the largest thing on the surface.
 - **Citation:** Mono, muted, underlined with a dim rule. It is a jump to the
@@ -459,6 +490,8 @@ Tables are evidence:
   type size.
 - Do size repeated rows as one layout with shared lanes, so a long label can
   never move a value.
+- Do lift an interactive disclosure to `surface-inset` on hover and keyboard
+  focus so its hit area is visible without adding another border.
 - Do keep preparation opinionated: Full prep is the default, and the only
   user-facing mode exception is `Ask before changes` under Details >
   Preferences. Auto-prep remains an engine state, not a daily sidebar choice.
@@ -614,16 +647,16 @@ layout instructions run whether or not an agent is connected.
 
 ## Autonomy
 
-Three levels sit as outlined pills; the active one fills with signal. Beside
-them, one sentence that never changes: nothing reads the image, chooses its
-own coordinates, or signs. It is static because it describes what is fixed,
-and the pills describe what moves.
+Full prep is the product, not a mode the reader has to choose. There is no
+autonomy selector in the work view or Details. The engine retains 3 levels so
+its behavior can be tested precisely, but `auto-prep` is never user-facing.
 
-At the most cautious level the question appears inline in the docked panel,
-or in the status strip while that panel is collapsed, with the choices stated
-as actions rather than as yes and no. A viewer-write question never overlays
-the viewport it concerns.
-Elsewhere the write happens and the undo is offered.
+Details > Preferences contains one exception: `Ask before changes`. Off means
+Full prep. On means Assist. At Assist, the question appears inline in the
+docked panel, or in the status strip while that panel is collapsed, with the
+choices stated as actions rather than as yes and no. A viewer-write question
+never overlays the viewport it concerns. Elsewhere the write happens and the
+undo is offered.
 
 ## Live surfaces
 

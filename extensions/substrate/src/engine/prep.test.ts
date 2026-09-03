@@ -77,6 +77,7 @@ describe('Full prep', () => {
     expect(calls.find(call => call.name === 'propose_measurement')?.input).toEqual({
       from_measurement_id: 'measurement-prior-1',
       target_study_uid: 'current',
+      target_series_uid: 'series-current',
       label: 'target 1',
     });
     expect(calls.find(call => call.name === 'draft_report')?.input).toEqual(

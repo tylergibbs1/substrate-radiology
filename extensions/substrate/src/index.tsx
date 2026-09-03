@@ -9,6 +9,7 @@ import { clearReport } from './engine/report';
 import { autonomy } from './engine/autonomy';
 import getPanelModule, { AGENT_PANEL_ID, AGENT_STATUS_ID } from './getPanelModule';
 import { token } from './designTokens';
+import type { ViewerDependencies } from './webmcp/viewerContext';
 
 /**
  * Substrate: an agent-native radiology workflow, as an OHIF extension.
@@ -26,7 +27,18 @@ import { token } from './designTokens';
  * so there must never be two controllers alive at once.
  */
 
-let controller: AbortController | null = null;
+type ModeDependencies = Omit<ViewerDependencies, 'sessionSignal'>;
+
+type ModeSession = {
+  activationTimer: number | null;
+  controller: AbortController;
+  generation: number;
+  presenceSessionId: number;
+  services: Record<string, unknown>;
+};
+
+let activeSession: ModeSession | null = null;
+let nextGeneration = 1;
 const HOST_THEME_ID = 'substrate-host-theme';
 // Neutral host chrome keeps the agent mark as the only hue in Substrate mode.
 const HOST_THEME = `
@@ -59,6 +71,42 @@ const HOST_THEME = `
     min-width: 0 !important;
     max-width: 0 !important;
   }
+  .substrate-mode .substrate-host-panel-shell {
+    overflow: hidden;
+    background: ${token['surface/panel']} !important;
+  }
+  .substrate-mode .substrate-host-panel-shell [data-side-panel-header] {
+    height: ${token['layout/panel-shell-header-height']} !important;
+    padding: 0 ${token['space/sm']} !important;
+    border-bottom: 1px solid ${token['border/strong']};
+    border-radius: ${token['radius/none']} !important;
+    background: ${token['surface/panel']} !important;
+  }
+  .substrate-mode .substrate-host-panel-shell [data-side-panel-separator],
+  .substrate-mode .substrate-host-panel-shell [data-side-panel-tab-spacer] {
+    display: none;
+  }
+  .substrate-mode .substrate-host-panel-shell [data-side-panel-toggle='open'],
+  .substrate-mode .substrate-host-panel-shell [data-side-panel-tab] {
+    width: ${token['layout/panel-tab-target']} !important;
+    height: ${token['layout/panel-tab-target']} !important;
+    margin: 0 !important;
+    border-radius: ${token['radius/none']} !important;
+    background: transparent !important;
+  }
+  .substrate-mode .substrate-host-panel-shell [data-side-panel-tab-mark] {
+    width: ${token['layout/panel-tab-mark']} !important;
+    height: ${token['layout/panel-tab-mark']} !important;
+    margin: auto;
+    border-radius: ${token['radius/inner']} !important;
+    background: transparent !important;
+  }
+  .substrate-mode .substrate-host-panel-shell [data-side-panel-tab][data-active='true'] [data-side-panel-tab-mark] {
+    background: ${token['surface/inset']} !important;
+  }
+  .substrate-mode .substrate-host-panel-content {
+    background: ${token['surface/panel']};
+  }
   .substrate-mode .border-highlight { border-color: ${token['border/strong']} !important; }
   .substrate-mode .text-primary,
   .substrate-mode .text-primary-light,
@@ -85,85 +133,144 @@ const HOST_THEME = `
   }
 `;
 
+function applyHostTheme(): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.classList.add('substrate-mode');
+  const hostTheme = document.getElementById(HOST_THEME_ID) ?? document.createElement('style');
+  hostTheme.id = HOST_THEME_ID;
+  hostTheme.textContent = HOST_THEME;
+  if (!hostTheme.isConnected) document.head.append(hostTheme);
+  document.documentElement.style.setProperty('--substrate-surface-bed', token['surface/bed']);
+  document.documentElement.style.setProperty('--substrate-surface-inset', token['surface/inset']);
+  document.documentElement.style.setProperty('--substrate-surface-raised', token['surface/raised']);
+}
+
+function removeHostTheme(): void {
+  if (typeof document === 'undefined') return;
+  document.documentElement.style.removeProperty('--substrate-surface-bed');
+  document.documentElement.style.removeProperty('--substrate-surface-inset');
+  document.documentElement.style.removeProperty('--substrate-surface-raised');
+  document.documentElement.classList.remove('substrate-mode');
+  document.getElementById(HOST_THEME_ID)?.remove();
+}
+
+function removeDiagnosticHandle(): void {
+  if (typeof window === 'undefined') return;
+  delete (window as unknown as { substrate?: unknown }).substrate;
+}
+
+function panelServiceOf(services: Record<string, unknown>) {
+  return services.panelService as
+    | {
+        PanelPosition: { Right: unknown; Bottom: unknown };
+        getPanels: (position: unknown) => Array<{ id: string }>;
+        addPanel: (position: unknown, panelId: string, options?: object) => void;
+        activatePanel: (panelId: string, forceActive?: boolean) => void;
+        reset?: () => void;
+      }
+    | undefined;
+}
+
+function addSubstratePanels(session: ModeSession): void {
+  const panelService = panelServiceOf(session.services);
+  if (!panelService) return;
+  const position = panelService.PanelPosition.Right;
+  if (!panelService.getPanels(position).some(panel => panel.id === AGENT_PANEL_ID)) {
+    panelService.addPanel(position, AGENT_PANEL_ID, { rightPanelClosed: false });
+  }
+  const bottom = panelService.PanelPosition.Bottom;
+  if (!panelService.getPanels(bottom).some(panel => panel.id === AGENT_STATUS_ID)) {
+    panelService.addPanel(bottom, AGENT_STATUS_ID);
+  }
+  session.activationTimer = window.setTimeout(() => {
+    if (activeSession !== session) return;
+    panelService.activatePanel(AGENT_PANEL_ID, true);
+    session.activationTimer = null;
+  }, 0);
+}
+
+function showRegistrationState(session: ModeSession, result: RegistrationResult): void {
+  presence.setRegistration(result, session.presenceSessionId);
+  mountAgentIsland(session.services, session.generation);
+  addSubstratePanels(session);
+}
+
+async function bootstrapSubstrateMode(session: ModeSession, deps: ModeDependencies): Promise<void> {
+  const signal = session.controller.signal;
+  const tools = buildViewerTools({ ...deps, sessionSignal: signal });
+  const result: RegistrationResult = await register(tools, signal);
+  if (activeSession !== session || signal.aborted) return;
+
+  showRegistrationState(session, result);
+  if (!result.ok) {
+    // Registration is transactional from the mode's perspective. Aborting the
+    // shared registration signal removes any tools accepted before a failure.
+    if (result.registered.length > 0) session.controller.abort();
+    return;
+  }
+  if (result.registered.length !== tools.length) {
+    session.controller.abort();
+    return;
+  }
+
+  // Full prep is part of the connected Substrate mode. It must not run when
+  // WebMCP is unavailable or when only a partial surface was registered.
+  void runFullPrep(tools, signal);
+}
+
+function reportBootstrapFailure(session: ModeSession, error: unknown): void {
+  if (activeSession !== session || session.controller.signal.aborted) return;
+  const message = error instanceof Error ? error.message : 'Substrate could not start.';
+  showRegistrationState(session, {
+    ok: false,
+    registered: [],
+    failure: { kind: 'unknown', message },
+  });
+  session.controller.abort();
+}
+
+/** Add the Substrate WebMCP surface to the active OHIF viewer lifecycle. */
+export function enterSubstrateMode(deps: ModeDependencies): void {
+  if (activeSession) exitSubstrateMode();
+  removeDiagnosticHandle();
+  applyHostTheme();
+
+  const session: ModeSession = {
+    activationTimer: null,
+    controller: new AbortController(),
+    generation: nextGeneration++,
+    presenceSessionId: presence.beginSession(),
+    services: deps.servicesManager.services,
+  };
+  activeSession = session;
+  void bootstrapSubstrateMode(session, deps).catch(error => reportBootstrapFailure(session, error));
+}
+
+/** Stop all Substrate work before OHIF resets its mode-scoped services. */
+export function exitSubstrateMode(): void {
+  const session = activeSession;
+  activeSession = null;
+  nextGeneration += 1;
+  if (session) {
+    session.controller.abort();
+    if (session.activationTimer !== null) window.clearTimeout(session.activationTimer);
+    panelServiceOf(session.services)?.reset?.();
+    presence.endSession(session.presenceSessionId);
+    unmountAgentIsland(session.generation);
+  }
+  for (const request of autonomy.getPending()) autonomy.decide(request.id, 'skip');
+  clearProposals();
+  clearReport();
+  autonomy.setViewportResolver();
+  removeHostTheme();
+  removeDiagnosticHandle();
+}
+
 const substrateExtension = {
   id,
-
   getPanelModule,
-
-  /**
-   * Registration happens on mode enter rather than at app start, so the live
-   * tool surface always matches the route the radiologist is actually on.
-   */
-  onModeEnter: async ({ servicesManager, commandsManager, extensionManager }): Promise<void> => {
-    document.documentElement.classList.add('substrate-mode');
-    const hostTheme = document.getElementById(HOST_THEME_ID) ?? document.createElement('style');
-    hostTheme.id = HOST_THEME_ID;
-    hostTheme.textContent = HOST_THEME;
-    if (!hostTheme.isConnected) document.head.append(hostTheme);
-    document.documentElement.style.setProperty('--substrate-surface-bed', token['surface/bed']);
-    document.documentElement.style.setProperty('--substrate-surface-inset', token['surface/inset']);
-    document.documentElement.style.setProperty(
-      '--substrate-surface-raised',
-      token['surface/raised']
-    );
-    // Abort any previous surface and let it settle before registering again.
-    // Two live controllers means duplicate names, which throws.
-    if (controller) {
-      controller.abort();
-      controller = null;
-      await Promise.resolve();
-    }
-
-    // A development handle. OHIF does not expose its services on window, and
-    // every probe of live viewer state needs them. Namespaced so it cannot
-    // collide, and read-only in the sense that nothing in the product reads it.
-    (window as unknown as { substrate?: unknown }).substrate = {
-      services: servicesManager.services,
-      commands: commandsManager,
-    };
-
-    controller = new AbortController();
-    const tools = buildViewerTools({ servicesManager, commandsManager, extensionManager });
-    const result: RegistrationResult = await register(tools, controller.signal);
-    presence.setRegistration(result);
-    mountAgentIsland(servicesManager.services);
-    const panelService = servicesManager.services.panelService as
-      | {
-          PanelPosition: { Right: unknown; Bottom: unknown };
-          getPanels: (position: unknown) => Array<{ id: string }>;
-          addPanel: (position: unknown, panelId: string, options?: object) => void;
-          activatePanel: (panelId: string, forceActive?: boolean) => void;
-        }
-      | undefined;
-    if (panelService) {
-      const position = panelService.PanelPosition.Right;
-      if (!panelService.getPanels(position).some(panel => panel.id === AGENT_PANEL_ID)) {
-        panelService.addPanel(position, AGENT_PANEL_ID, { rightPanelClosed: false });
-      }
-      const bottom = panelService.PanelPosition.Bottom;
-      if (!panelService.getPanels(bottom).some(panel => panel.id === AGENT_STATUS_ID)) {
-        panelService.addPanel(bottom, AGENT_STATUS_ID);
-      }
-      window.setTimeout(() => panelService.activatePanel(AGENT_PANEL_ID, true), 0);
-    }
-    void runFullPrep(tools, controller.signal);
-  },
-
-  onModeExit: (): void => {
-    controller?.abort();
-    controller = null;
-    presence.setRegistration({ ok: true, registered: [] });
-    presence.clear();
-    clearProposals();
-    clearReport();
-    autonomy.setViewportResolver();
-    document.documentElement.style.removeProperty('--substrate-surface-bed');
-    document.documentElement.style.removeProperty('--substrate-surface-inset');
-    document.documentElement.style.removeProperty('--substrate-surface-raised');
-    document.documentElement.classList.remove('substrate-mode');
-    document.getElementById(HOST_THEME_ID)?.remove();
-    unmountAgentIsland();
-  },
+  enterSubstrateMode,
+  exitSubstrateMode,
 };
 
 export default substrateExtension;

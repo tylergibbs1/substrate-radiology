@@ -21,13 +21,17 @@ import {
   currentVersion,
   openReplies,
   pendingRequest,
+  setSentenceReview,
   sign,
   signatureIsStale,
 } from '../engine/report';
 import { register, type WebMcpTool } from '../webmcp/spec';
-import { buildViewerTools } from '../webmcp/viewerTools';
+import { buildViewerTools as buildViewerToolsWithSession } from '../webmcp/viewerTools';
 
 Object.defineProperty(globalThis, 'TextEncoder', { configurable: true, value: NodeTextEncoder });
+const buildViewerTools = (
+  deps: Omit<Parameters<typeof buildViewerToolsWithSession>[0], 'sessionSignal'>
+) => buildViewerToolsWithSession({ ...deps, sessionSignal: new AbortController().signal });
 Object.defineProperty(globalThis, 'TextDecoder', { configurable: true, value: NodeTextDecoder });
 Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto });
 
@@ -45,14 +49,11 @@ describe('S1-S7 WebMCP acceptance sequence', () => {
   });
 
   it('completes the whole workflow while preserving every human-only boundary', async () => {
-    const accepted = new Set<string>();
-    const proposalIds = ['proposal-target-1', 'proposal-target-2'];
+    const proposalIds = ['prior-target-1', 'prior-target-2'];
     const proposalModule = jest.requireMock('../engine/proposals') as {
       isCitable: jest.Mock;
     };
-    proposalModule.isCitable.mockImplementation((id: string) =>
-      id.startsWith('proposal-') ? accepted.has(id) : true
-    );
+    proposalModule.isCitable.mockReturnValue(true);
     const placeModule = jest.requireMock('../engine/place') as { placeProposal: jest.Mock };
     placeModule.placeProposal
       .mockReturnValueOnce(proposalIds[0])
@@ -99,7 +100,27 @@ describe('S1-S7 WebMCP acceptance sequence', () => {
       ['viewport-current', { displaySetInstanceUIDs: ['display-current'] }],
       ['viewport-prior', { displaySetInstanceUIDs: ['display-prior'] }],
     ]);
-    const runCommand = jest.fn();
+    const orientations = new Map<string, string>();
+    const properties = new Map<string, Record<string, unknown>>();
+    const imageIndexes = new Map<string, number>([
+      ['viewport-current', 50],
+      ['viewport-prior', 50],
+    ]);
+    const runCommand = jest.fn((name: string, options?: any) => {
+      if (name === 'setViewportOrientation') {
+        orientations.set(options.viewportId, String(options.orientation));
+      }
+      if (name === 'setViewportWindowLevel') {
+        const voiRange = {
+          lower: options.windowCenter - 0.5 - (options.windowWidth - 1) / 2,
+          upper: options.windowCenter - 0.5 + (options.windowWidth - 1) / 2,
+        };
+        properties.set(options.viewportId, {
+          voiRange,
+        });
+      }
+      if (name === 'jumpToImage') imageIndexes.set(options.viewport.id, options.imageIndex);
+    });
     const setDisplaySetsForViewports = jest.fn(async updates => {
       for (const update of updates) {
         viewports.set(update.viewportId, { displaySetInstanceUIDs: update.displaySetInstanceUIDs });
@@ -116,15 +137,15 @@ describe('S1-S7 WebMCP acceptance sequence', () => {
         setDisplaySetsForViewports,
       },
       cornerstoneViewportService: {
-        getCornerstoneViewport: () => ({
+        getCornerstoneViewport: viewportId => ({
           element: { isConnected: true },
           viewportStatus: 'rendered',
-          getCurrentImageIdIndex: () => 50,
-          getProperties: () => ({}),
+          getCurrentImageIdIndex: () => imageIndexes.get(viewportId) ?? 0,
+          getProperties: () => properties.get('viewport-current') ?? {},
           getCamera: () => ({}),
           render: jest.fn(),
         }),
-        getOrientation: () => 'AXIAL',
+        getOrientation: viewportId => orientations.get(viewportId) ?? 'AXIAL',
       },
       displaySetService: {
         getActiveDisplaySets: () => displaySets,
@@ -226,25 +247,32 @@ describe('S1-S7 WebMCP acceptance sequence', () => {
       expect.objectContaining({ count: 2 })
     );
 
-    // S4 — WebMCP copies only those sources. The person adjusts one and accepts both.
+    // S4 — distinct frames cannot be copied without registration. WebMCP refuses,
+    // and the radiologist measures the prior directly.
     const firstProposal = await call('propose_measurement', {
       from_measurement_id: 'current-target-1',
       target_study_uid: PRIOR_STUDY,
+      target_series_uid: PRIOR_SERIES,
       label: 'target 1',
     });
     const secondProposal = await call('propose_measurement', {
       from_measurement_id: 'current-target-2',
       target_study_uid: PRIOR_STUDY,
+      target_series_uid: PRIOR_SERIES,
       label: 'target 2',
     });
-    expect(firstProposal).toEqual(expect.objectContaining({ state: 'proposed', aligned: false }));
-    expect(secondProposal).toEqual(expect.objectContaining({ state: 'proposed', aligned: false }));
+    expect(firstProposal).toEqual(expect.objectContaining({ code: 'FRAME_OF_REFERENCE_MISMATCH' }));
+    expect(secondProposal).toEqual(
+      expect.objectContaining({ code: 'FRAME_OF_REFERENCE_MISMATCH' })
+    );
+    expect(placeModule.placeProposal).not.toHaveBeenCalled();
     measurements.push(
       {
         uid: proposalIds[0],
         label: 'target 1',
         referenceStudyUID: PRIOR_STUDY,
         referenceSeriesUID: PRIOR_SERIES,
+        FrameOfReferenceUID: 'frame-prior',
         toolName: 'Bidirectional',
         displayText: { primary: ['7.5 mm'] }, // adjusted by the radiologist
       },
@@ -253,12 +281,11 @@ describe('S1-S7 WebMCP acceptance sequence', () => {
         label: 'target 2',
         referenceStudyUID: PRIOR_STUDY,
         referenceSeriesUID: PRIOR_SERIES,
+        FrameOfReferenceUID: 'frame-prior',
         toolName: 'Bidirectional',
         displayText: { primary: ['6.0 mm'] },
       }
     );
-    accepted.add(proposalIds[0]);
-    accepted.add(proposalIds[1]);
 
     // S5 — comparison and draft use accepted measurements only.
     await expect(call('compare_with_prior', { labels: ['target 1', 'target 2'] })).resolves.toEqual(
@@ -318,6 +345,9 @@ describe('S1-S7 WebMCP acceptance sequence', () => {
       })
     ).resolves.toEqual(expect.objectContaining({ status: 'pending' }));
     expect(pendingRequest()?.status).toBe('pending');
+    for (const sentence of currentVersion()!.sentences) {
+      await setSentenceReview(sentence.sentenceId, 'accepted');
+    }
     expect(
       sign('Dr Acceptance', 'I reviewed the report and take responsibility.', [])
     ).not.toBeNull();

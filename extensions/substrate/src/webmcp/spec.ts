@@ -1,161 +1,339 @@
 /**
  * The WebMCP surface, feature-detected.
  *
- * Everything the browser gives us is behind `document.modelContext`, which does
- * not exist in most browsers and did not exist in any of them a year ago. This
- * module is the only place that touches it, so the rest of Substrate can be
- * written as if tools were ordinary functions.
- *
- * Two details here are load-bearing and easy to get wrong:
- *
- * 1. `execute` receives `(input, context)` and the CONTEXT ARGUMENT IS
- *    OPTIONAL. An agent may call it with one argument. Destructuring the second
- *    would throw a TypeError, which the agent sees as an opaque failure with
- *    nothing to act on, so every signature here takes it optionally.
- *
- * 2. Registration fails for its own reasons, separately from execution.
- *    A duplicate or malformed name throws InvalidStateError, an untrustworthy
- *    origin throws SecurityError, a disabled `tools` permissions policy throws
- *    NotAllowedError, and a bad inputSchema throws TypeError. A judge with a
- *    misconfigured browser needs to be told which one happened rather than
- *    shown an empty panel, so `register` reports the reason instead of
- *    swallowing it.
+ * The current draft exposes an object-shaped API at `document.modelContext`.
+ * Chromium's origin-trial builds have also shipped two transitional shapes:
+ * object schemas plus string execution arguments at `document.modelContext`,
+ * and string schemas plus string execution arguments at
+ * `navigator.modelContext`. Keep those native differences in this module so
+ * the rest of Substrate only deals with the current object contract.
  */
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 export type JsonObject = { [key: string]: JsonValue };
 
-/** The two annotation hints the spec actually defines. There are no others. */
 export type ToolAnnotations = {
   readOnlyHint?: boolean;
   untrustedContentHint?: boolean;
+  consequentialHint?: boolean;
 };
 
+/**
+ * The current draft always supplies an options dictionary containing a signal.
+ * The argument itself remains optional here because older hosts and direct
+ * compatibility callers may invoke a producer callback with only its input.
+ */
+export type ToolExecuteCallbackOptions = {
+  signal: AbortSignal;
+};
+
+type CompatibleToolExecuteCallbackOptions = Partial<ToolExecuteCallbackOptions>;
+
+/** A producer definition supplied to registerTool(). */
 export type WebMcpTool = {
   name: string;
-  title: string;
+  title?: string;
   description: string;
   inputSchema?: JsonObject;
   annotations?: ToolAnnotations;
-  execute: (input: JsonObject, context?: { signal?: AbortSignal }) => Promise<JsonValue>;
+  execute: (
+    input: JsonObject,
+    options?: CompatibleToolExecuteCallbackOptions
+  ) => Promise<JsonValue>;
+};
+
+/** Consumer metadata returned by getTools(); it never exposes execute(). */
+export type RegisteredTool = {
+  name: string;
+  title?: string;
+  description: string;
+  inputSchema?: JsonObject;
+  window: Window;
+  origin: string;
+  annotations?: ToolAnnotations;
+};
+
+export type ModelContextRegisterToolOptions = {
+  exposedTo?: string[];
+  signal?: AbortSignal;
+};
+
+export type ModelContextGetToolOptions = {
+  fromOrigins?: string[];
+};
+
+export type ModelContextExecuteToolOptions = {
+  signal?: AbortSignal;
 };
 
 export type ModelContext = EventTarget & {
-  registerTool: (tool: WebMcpTool, options?: { signal?: AbortSignal }) => Promise<void>;
-  getTools?: () => WebMcpTool[] | Promise<WebMcpTool[]>;
+  registerTool: (tool: WebMcpTool, options?: ModelContextRegisterToolOptions) => Promise<void>;
+  getTools?: (options?: ModelContextGetToolOptions) => RegisteredTool[] | Promise<RegisteredTool[]>;
   executeTool?: (
-    tool: WebMcpTool,
+    tool: RegisteredTool,
     input?: JsonObject,
-    options?: { signal?: AbortSignal }
-  ) => Promise<string>;
+    options?: ModelContextExecuteToolOptions
+  ) => Promise<string | null>;
+  ontoolchange?: ((this: ModelContext, event: Event) => unknown) | null;
+};
+
+type SchemaEncoding = 'object' | 'string' | 'unknown';
+type ExecuteInputEncoding = 'object' | 'string' | 'unavailable';
+
+export type ModelContextCapabilities = {
+  registeredSchema: SchemaEncoding;
+  executeInput: ExecuteInputEncoding;
+};
+
+type NativeRegisteredTool = Omit<RegisteredTool, 'inputSchema'> & {
+  inputSchema?: JsonObject | string;
+};
+
+type NativeTool = Omit<WebMcpTool, 'inputSchema' | 'execute'> & {
+  inputSchema?: JsonObject | string;
+  execute: (input: JsonObject | string, options?: { signal?: AbortSignal }) => Promise<JsonValue>;
+};
+
+type NativeModelContext = EventTarget & {
+  registerTool: (
+    tool: NativeTool,
+    options?: ModelContextRegisterToolOptions
+  ) => void | Promise<void>;
+  getTools?: (
+    options?: ModelContextGetToolOptions
+  ) => NativeRegisteredTool[] | Promise<NativeRegisteredTool[]>;
+  executeTool?: (
+    tool: NativeRegisteredTool,
+    input?: JsonObject | string,
+    options?: ModelContextExecuteToolOptions
+  ) => Promise<string | null>;
+  ontoolchange?: ((event: Event) => unknown) | null;
 };
 
 type ModelContextHost = {
-  modelContext?: ModelContext;
+  modelContext?: NativeModelContext | ModelContext;
 };
 
-type LegacyWebMcpTool = Omit<WebMcpTool, 'inputSchema' | 'execute'> & {
-  inputSchema?: string;
-  execute: (input: JsonObject | string, context?: { signal?: AbortSignal }) => Promise<JsonValue>;
-};
+/**
+ * Detect the observable native contract without treating its property location
+ * as an API-version signal. The draft's optional object input gives
+ * executeTool a Web IDL arity of 1; Chromium's required DOMString input gives
+ * it an arity of 2. A discovered schema supplies the independent schema
+ * capability.
+ */
+export function detectModelContextCapabilities(
+  context: { executeTool?: { readonly length: number } },
+  tools: ReadonlyArray<{ inputSchema?: unknown }> = []
+): ModelContextCapabilities {
+  const schemaKinds = new Set<Exclude<SchemaEncoding, 'unknown'>>();
+  for (let index = 0; index < tools.length; index += 1) {
+    const tool = tools[index];
+    if (typeof tool.inputSchema === 'string') schemaKinds.add('string');
+    else if (tool.inputSchema && typeof tool.inputSchema === 'object') schemaKinds.add('object');
+  }
 
-type LegacyModelContext = EventTarget & {
-  registerTool: (tool: LegacyWebMcpTool, options?: { signal?: AbortSignal }) => Promise<void>;
-  getTools?: () => LegacyWebMcpTool[] | Promise<LegacyWebMcpTool[]>;
-  executeTool?: (
-    tool: LegacyWebMcpTool,
-    input?: string,
-    options?: { signal?: AbortSignal }
-  ) => Promise<string>;
-};
+  return {
+    registeredSchema: schemaKinds.size === 1 ? [...schemaKinds][0] : 'unknown',
+    executeInput: context.executeTool
+      ? context.executeTool.length >= 2
+        ? 'string'
+        : 'object'
+      : 'unavailable',
+  };
+}
 
-const legacyAdapters = new WeakMap<object, ModelContext>();
+const nativeAdapters = new WeakMap<object, ModelContext>();
+const adapters = new WeakSet<object>();
 
-function parseObject(value: JsonObject | string | undefined): JsonObject {
-  if (typeof value !== 'string') return value ?? {};
-  const parsed = JSON.parse(value);
+function errorName(error: unknown): string {
+  if (error && typeof error === 'object' && 'name' in error) {
+    const name = (error as { name?: unknown }).name;
+    if (typeof name === 'string') return name;
+  }
+  return '';
+}
+
+function errorMessage(error: unknown): string {
+  if (error && typeof error === 'object' && 'message' in error) {
+    const message = (error as { message?: unknown }).message;
+    if (typeof message === 'string') return message;
+  }
+  return String(error);
+}
+
+function isSchemaShapeFailure(error: unknown): boolean {
+  const name = errorName(error);
+  return (
+    name === 'TypeError' ||
+    (name === 'InvalidStateError' && /(?:json|schema)/i.test(errorMessage(error)))
+  );
+}
+
+function parseInput(input: JsonObject | string | undefined): JsonObject {
+  const parsed = typeof input === 'string' ? JSON.parse(input) : (input ?? {});
   if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
     throw new TypeError('WebMCP tool input must be a JSON object.');
   }
   return parsed as JsonObject;
 }
 
-/**
- * Chrome's origin-trial implementation uses `navigator.modelContext`, a
- * string schema, and stringified execution arguments. Keep that native surface
- * available to browser agents while exposing the current object contract at
- * `document.modelContext` for standards-shaped callers.
- */
-function adaptLegacyContext(nativeContext: LegacyModelContext): ModelContext {
-  const cached = legacyAdapters.get(nativeContext);
-  if (cached) return cached;
+function producerForNative(
+  tool: WebMcpTool,
+  schema: Exclude<SchemaEncoding, 'unknown'>
+): NativeTool {
+  return {
+    ...tool,
+    inputSchema:
+      schema === 'string' && tool.inputSchema ? JSON.stringify(tool.inputSchema) : tool.inputSchema,
+    execute: (input, options) =>
+      tool.execute(parseInput(input), options?.signal ? { signal: options.signal } : undefined),
+  };
+}
 
-  const normalized = new Map<string, WebMcpTool>();
-  const nativeTools = new Map<string, LegacyWebMcpTool>();
-  const adapter = Object.assign(new EventTarget(), {
-    async registerTool(tool: WebMcpTool, options?: { signal?: AbortSignal }): Promise<void> {
-      const legacyTool: LegacyWebMcpTool = {
-        ...tool,
-        inputSchema: tool.inputSchema ? JSON.stringify(tool.inputSchema) : undefined,
-        execute: (input, context) => tool.execute(parseObject(input), context),
-      };
-      await nativeContext.registerTool(legacyTool, options);
-      normalized.set(tool.name, tool);
-      nativeTools.set(tool.name, legacyTool);
-      options?.signal?.addEventListener(
-        'abort',
-        () => {
-          normalized.delete(tool.name);
-          nativeTools.delete(tool.name);
-        },
-        { once: true }
-      );
-    },
-    async getTools(): Promise<WebMcpTool[]> {
-      if (!nativeContext.getTools) return [...normalized.values()];
-      const discovered = await nativeContext.getTools();
-      return discovered.map(nativeTool => {
-        const known = normalized.get(nativeTool.name);
-        if (known) return known;
-        return {
-          ...nativeTool,
-          inputSchema: nativeTool.inputSchema
-            ? (JSON.parse(nativeTool.inputSchema) as JsonObject)
-            : undefined,
-          execute: (input, context) => nativeTool.execute(input, context),
-        };
-      });
-    },
-    async executeTool(
-      tool: WebMcpTool,
-      input: JsonObject = {},
-      options?: { signal?: AbortSignal }
-    ): Promise<string> {
-      const nativeTool = nativeTools.get(tool.name);
-      if (nativeContext.executeTool && nativeTool) {
-        return nativeContext.executeTool(nativeTool, JSON.stringify(input), options);
-      }
-      return JSON.stringify(await tool.execute(input, { signal: options?.signal }));
-    },
-  }) as ModelContext;
+function normalizeRegisteredTool(
+  nativeTool: NativeRegisteredTool,
+  nativeDescriptors: WeakMap<object, NativeRegisteredTool>
+): RegisteredTool {
+  if (typeof nativeTool.inputSchema !== 'string') {
+    nativeDescriptors.set(nativeTool, nativeTool);
+    return nativeTool as RegisteredTool;
+  }
 
-  legacyAdapters.set(nativeContext, adapter);
+  const normalized: RegisteredTool = {
+    ...nativeTool,
+    inputSchema: nativeTool.inputSchema
+      ? (JSON.parse(nativeTool.inputSchema) as JsonObject)
+      : undefined,
+  };
+  nativeDescriptors.set(normalized, nativeTool);
+  return normalized;
+}
+
+function exposeAdapterOnDocument(nativeContext: NativeModelContext, adapter: ModelContext): void {
+  if (typeof document === 'undefined') return;
+  const current = (document as unknown as ModelContextHost).modelContext;
+  if (current && current !== nativeContext && current !== adapter) return;
   try {
     Object.defineProperty(document, 'modelContext', {
       configurable: true,
+      enumerable: true,
       value: adapter,
     });
-  } catch {
-    // Registration still works through the adapter even if the host locks the
-    // document property. The native navigator surface remains untouched.
+  } catch (_error) {
+    // getModelContext() still returns the cached adapter when the host's
+    // Document property cannot be shadowed.
   }
+}
+
+function adaptContext(nativeContext: NativeModelContext, exposeOnDocument: boolean): ModelContext {
+  const cached = nativeAdapters.get(nativeContext);
+  if (cached) {
+    if (exposeOnDocument) exposeAdapterOnDocument(nativeContext, cached);
+    return cached;
+  }
+
+  const nativeDescriptors = new WeakMap<object, NativeRegisteredTool>();
+  let capabilities = detectModelContextCapabilities(nativeContext);
+  const target = new EventTarget();
+  let ontoolchange: EventListener | null = null;
+
+  const adapter = target as ModelContext;
+  adapters.add(adapter);
+  nativeAdapters.set(nativeContext, adapter);
+
+  const readNativeTools = async (
+    options?: ModelContextGetToolOptions
+  ): Promise<NativeRegisteredTool[]> => {
+    if (!nativeContext.getTools) return [];
+    return Promise.resolve(nativeContext.getTools(options));
+  };
+
+  Object.assign(adapter, {
+    async registerTool(tool: WebMcpTool, options?: ModelContextRegisterToolOptions): Promise<void> {
+      if (capabilities.registeredSchema === 'unknown') {
+        try {
+          const existing = await readNativeTools();
+          capabilities = detectModelContextCapabilities(nativeContext, existing);
+        } catch (_error) {
+          // Registration itself remains the authoritative capability probe.
+        }
+      }
+
+      let encoding: Exclude<SchemaEncoding, 'unknown'> =
+        capabilities.registeredSchema === 'string' ? 'string' : 'object';
+      try {
+        await nativeContext.registerTool(producerForNative(tool, encoding), options);
+      } catch (error) {
+        if (encoding !== 'object' || !isSchemaShapeFailure(error)) throw error;
+        encoding = 'string';
+        await nativeContext.registerTool(producerForNative(tool, encoding), options);
+        capabilities = { ...capabilities, registeredSchema: 'string' };
+        return;
+      }
+
+      try {
+        const discovered = await readNativeTools();
+        const detected = detectModelContextCapabilities(nativeContext, discovered);
+        capabilities = {
+          ...capabilities,
+          registeredSchema:
+            detected.registeredSchema === 'unknown' ? encoding : detected.registeredSchema,
+        };
+      } catch (_error) {
+        capabilities = { ...capabilities, registeredSchema: encoding };
+      }
+    },
+
+    async getTools(options?: ModelContextGetToolOptions): Promise<RegisteredTool[]> {
+      const nativeTools = await readNativeTools(options);
+      const detected = detectModelContextCapabilities(nativeContext, nativeTools);
+      if (detected.registeredSchema !== 'unknown') {
+        capabilities = { ...capabilities, registeredSchema: detected.registeredSchema };
+      }
+      return nativeTools.map(tool => normalizeRegisteredTool(tool, nativeDescriptors));
+    },
+
+    async executeTool(
+      tool: RegisteredTool,
+      input: JsonObject = {},
+      options?: ModelContextExecuteToolOptions
+    ): Promise<string | null> {
+      if (!nativeContext.executeTool) {
+        throw new DOMException(
+          'This WebMCP host cannot execute discovered tools.',
+          'NotSupportedError'
+        );
+      }
+      const nativeTool = nativeDescriptors.get(tool) ?? (tool as NativeRegisteredTool);
+      const nativeInput = capabilities.executeInput === 'string' ? JSON.stringify(input) : input;
+      return nativeContext.executeTool(nativeTool, nativeInput, options);
+    },
+  });
+
+  Object.defineProperty(adapter, 'ontoolchange', {
+    configurable: true,
+    enumerable: true,
+    get: () => ontoolchange,
+    set: (value: ((event: Event) => unknown) | null | undefined) => {
+      if (ontoolchange) adapter.removeEventListener('toolchange', ontoolchange);
+      ontoolchange = typeof value === 'function' ? (value as EventListener) : null;
+      if (ontoolchange) adapter.addEventListener('toolchange', ontoolchange);
+    },
+  });
+
+  nativeContext.addEventListener('toolchange', () => {
+    adapter.dispatchEvent(new Event('toolchange'));
+  });
+
+  if (exposeOnDocument) exposeAdapterOnDocument(nativeContext, adapter);
   return adapter;
 }
 
 /** Why the tools are not available, in words a person can act on. */
 export type RegistrationFailure =
   | { kind: 'unsupported' }
+  | { kind: 'aborted'; message: string }
   | { kind: 'insecure'; message: string }
   | { kind: 'blocked'; message: string }
   | { kind: 'invalid'; message: string }
@@ -166,38 +344,44 @@ export type RegistrationResult =
   | { ok: false; registered: string[]; failure: RegistrationFailure };
 
 /**
- * The context, if this browser has one. `navigator.modelContext` is the older
- * preview location and is still worth checking, because a judge may be on a
- * build that predates the move to `document`.
+ * Return a standards-shaped context. Contract detection is based on method and
+ * descriptor capabilities; the document/navigator choice only locates the
+ * native object and decides whether a navigator-only host needs a document
+ * compatibility property.
  */
 export function getModelContext(): ModelContext | null {
   if (typeof document === 'undefined') return null;
   const fromDocument = (document as unknown as ModelContextHost).modelContext;
-  if (fromDocument) return fromDocument;
+  if (fromDocument && adapters.has(fromDocument)) return fromDocument as ModelContext;
+
   const fromNavigator =
     typeof navigator === 'undefined'
       ? undefined
-      : ((navigator as unknown as ModelContextHost).modelContext as unknown as
-          | LegacyModelContext
-          | undefined);
-  return fromNavigator ? adaptLegacyContext(fromNavigator) : null;
-}
+      : (navigator as unknown as ModelContextHost).modelContext;
+  const nativeContext = (fromDocument ?? fromNavigator) as NativeModelContext | undefined;
+  if (!nativeContext) return null;
 
-export function isSupported(): boolean {
-  return getModelContext() !== null;
+  const capabilities = detectModelContextCapabilities(nativeContext);
+  const navigatorOnly = !fromDocument && Boolean(fromNavigator);
+  if (!navigatorOnly && capabilities.executeInput !== 'string') {
+    return nativeContext as unknown as ModelContext;
+  }
+  return adaptContext(nativeContext, navigatorOnly || capabilities.executeInput === 'string');
 }
 
 function describe(error: unknown): RegistrationFailure {
-  // SAFETY: DOMException carries the name the spec defines; anything else is
-  // reported as unknown rather than guessed at.
-  const name = error instanceof DOMException ? error.name : '';
-  const message = error instanceof Error ? error.message : String(error);
+  const name = errorName(error);
+  const message = errorMessage(error);
+  if (name === 'AbortError') {
+    return { kind: 'aborted', message: `Tool registration was cancelled. (${message})` };
+  }
   if (name === 'SecurityError') {
     return {
       kind: 'insecure',
       message:
-        'The browser refused to expose tools on this page because the origin is not ' +
-        `trustworthy. Serve it over HTTPS or from localhost. (${message})`,
+        'The browser rejected WebMCP security requirements. The document may not be ' +
+        'origin-keyed, or an exposed origin may be invalid or untrustworthy. Use a secure, ' +
+        `origin-keyed page and only valid HTTPS exposed origins. (${message})`,
     };
   }
   if (name === 'NotAllowedError') {
@@ -208,22 +392,31 @@ function describe(error: unknown): RegistrationFailure {
         `see its tools. (${message})`,
     };
   }
-  if (name === 'InvalidStateError' || name === 'TypeError' || error instanceof TypeError) {
+  if (name === 'InvalidStateError') {
     return {
       kind: 'invalid',
-      message: `A tool was rejected as malformed, so registration stopped. (${message})`,
+      message:
+        'A tool registration was invalid. The document may be inactive, the name may be ' +
+        `duplicate or invalid, or the name or description may be empty. (${message})`,
+    };
+  }
+  if (name === 'TypeError' || error instanceof TypeError) {
+    return {
+      kind: 'invalid',
+      message: `A tool definition or input schema could not be converted or serialized. (${message})`,
     };
   }
   return { kind: 'unknown', message };
 }
 
-/**
- * Register a route's tools against one AbortSignal.
- *
- * Registration stops at the first rejection rather than pressing on, because a
- * half-registered surface is worse than none: the agent would see some tools,
- * conclude it can do the job, and fail partway through a study.
- */
+function abortedFailure(reason: unknown): RegistrationFailure {
+  return {
+    kind: 'aborted',
+    message: `Tool registration was cancelled. (${errorMessage(reason)})`,
+  };
+}
+
+/** Register all route tools as one transaction owned by the lifecycle signal. */
 export async function register(
   tools: WebMcpTool[],
   signal: AbortSignal
@@ -231,25 +424,40 @@ export async function register(
   const context = getModelContext();
   if (!context) return { ok: false, registered: [], failure: { kind: 'unsupported' } };
 
+  const batch = new AbortController();
+  const abortBatch = () => batch.abort(signal.reason);
+  if (signal.aborted) {
+    abortBatch();
+    return { ok: false, registered: [], failure: abortedFailure(signal.reason) };
+  }
+  signal.addEventListener('abort', abortBatch, { once: true });
+
   const registered: string[] = [];
-  for (const tool of tools) {
+  for (let index = 0; index < tools.length; index += 1) {
+    const tool = tools[index];
     try {
-      await context.registerTool(tool, { signal });
+      await context.registerTool(tool, { signal: batch.signal });
       registered.push(tool.name);
     } catch (error) {
-      return { ok: false, registered, failure: describe(error) };
+      batch.abort(error);
+      signal.removeEventListener('abort', abortBatch);
+      return {
+        ok: false,
+        registered: [],
+        failure: signal.aborted ? abortedFailure(signal.reason) : describe(error),
+      };
     }
   }
   return { ok: true, registered };
 }
 
-/** What the tools panel reads back, so a person can see the live surface. */
-export function liveTools(): Promise<WebMcpTool[]> {
+/** Consumer metadata currently visible to an agent; no execute callback is fabricated. */
+export function liveTools(): Promise<RegisteredTool[]> {
   const context = getModelContext();
   if (!context?.getTools) return Promise.resolve([]);
   try {
     return Promise.resolve(context.getTools()).catch(() => []);
-  } catch {
+  } catch (_error) {
     return Promise.resolve([]);
   }
 }

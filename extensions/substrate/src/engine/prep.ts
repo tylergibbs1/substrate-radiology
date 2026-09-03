@@ -107,18 +107,23 @@ async function performFullPrep(
     };
   }
 
-  const diagnosticSeries = (study: JsonObject): JsonObject | undefined =>
-    rows(study.series)
-      .filter(series => Number(series.image_count ?? 0) > 1)
-      .sort((a, b) => Number(b.image_count ?? 0) - Number(a.image_count ?? 0))[0];
-  const currentSeries = diagnosticSeries(current);
-  const priorSeries = diagnosticSeries(prior);
+  const currentPaneSeriesUid = String(
+    rows(context.panes).find(
+      pane => String(pane.viewport ?? '') === String(context.active_viewport ?? '')
+    )?.series_uid ?? ''
+  );
+  const currentSeries = rows(current.series).find(
+    series => String(series.series_uid ?? '') === currentPaneSeriesUid
+  );
+  const priorCandidates = rows(prior.series).filter(series => Number(series.image_count ?? 0) > 1);
+  const priorSeries = priorCandidates.length === 1 ? priorCandidates[0] : undefined;
   if (!currentSeries || !priorSeries) {
     return {
       status: 'incomplete',
       studyUid: currentStudyUid,
       steps: [],
-      message: 'The current study or prior has no diagnostic series.',
+      message:
+        'Full prep needs the active current series and one unambiguous prior series; select them in the viewer first.',
     };
   }
 
@@ -132,6 +137,7 @@ async function performFullPrep(
       { series_uid: String(priorSeries.series_uid ?? '') },
     ],
   });
+  if (signal.aborted) return { status: 'cancelled', studyUid: currentStudyUid, steps };
   if (failed(hang)) {
     timing.cancel();
     return { status: 'incomplete', studyUid: currentStudyUid, steps };
@@ -143,6 +149,7 @@ async function performFullPrep(
     const viewport = String(pane.viewport ?? '');
     if (viewport) await call('set_display', { viewport, preset: 'lung' });
   }
+  if (signal.aborted) return { status: 'cancelled', studyUid: currentStudyUid, steps };
   steps.push('Applied lung window');
 
   const listed = object(await call('list_measurements'));
@@ -157,20 +164,23 @@ async function performFullPrep(
       String(row.label ?? '').trim() !== '' &&
       row.proposed !== true
   );
+  let proposed = 0;
   for (const source of labeledPrior) {
     const measurementId = String(source.measurement_id ?? '');
     if (!measurementId || currentProposalSources.has(measurementId)) continue;
-    await call('propose_measurement', {
+    const result = await call('propose_measurement', {
       from_measurement_id: measurementId,
       target_study_uid: currentStudyUid,
+      target_series_uid: String(currentSeries.series_uid ?? ''),
       label: String(source.label ?? ''),
     });
+    if (!failed(result)) proposed += 1;
+    if (signal.aborted) return { status: 'cancelled', studyUid: currentStudyUid, steps };
   }
-  steps.push(
-    `Proposed ${labeledPrior.length} labeled measurement${labeledPrior.length === 1 ? '' : 's'}`
-  );
+  steps.push(`Proposed ${proposed} labeled measurement${proposed === 1 ? '' : 's'}`);
 
   await call('compare_with_prior');
+  if (signal.aborted) return { status: 'cancelled', studyUid: currentStudyUid, steps };
   steps.push('Compared available measurements');
 
   if (labeledPrior.length === 0) {

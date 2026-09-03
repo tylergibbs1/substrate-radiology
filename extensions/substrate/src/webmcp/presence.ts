@@ -62,8 +62,34 @@ type Listener = () => void;
 class Presence {
   private events: ToolCallEvent[] = [];
   private nextCallId = 1;
+  private nextSessionId = 1;
+  private activeSessionId = 0;
+  private callSessions = new Map<number, number>();
   private registration: RegistrationResult = { ok: true, registered: [] };
   private listeners = new Set<Listener>();
+
+  /**
+   * Start an isolated mode session. Calls from an older route may still settle,
+   * but their completion must never repopulate the next reader's activity feed.
+   */
+  beginSession(): number {
+    const sessionId = this.nextSessionId++;
+    this.activeSessionId = sessionId;
+    this.events = [];
+    this.callSessions.clear();
+    this.registration = { ok: true, registered: [] };
+    this.announce();
+    return sessionId;
+  }
+
+  endSession(sessionId: number): void {
+    if (sessionId !== this.activeSessionId) return;
+    this.activeSessionId = this.nextSessionId++;
+    this.events = [];
+    this.callSessions.clear();
+    this.registration = { ok: true, registered: [] };
+    this.announce();
+  }
 
   subscribe(listener: Listener): () => void {
     this.listeners.add(listener);
@@ -87,6 +113,7 @@ class Presence {
     activity?: AgentActivity
   ): number {
     const callId = this.nextCallId++;
+    this.callSessions.set(callId, this.activeSessionId);
     this.record({
       callId,
       owner: 'active-reader',
@@ -108,6 +135,10 @@ class Presence {
     callId: number,
     event: Omit<ToolCallEvent, 'callId' | 'running' | 'owner' | 'delegate'>
   ): void {
+    const callSessionId = this.callSessions.get(callId);
+    this.callSessions.delete(callId);
+    if (callSessionId !== this.activeSessionId) return;
+
     const index = this.events.findIndex(entry => entry.callId === callId);
     const finished: ToolCallEvent = {
       ...event,
@@ -147,7 +178,7 @@ class Presence {
     }
     const last = this.getLast();
     if (waitingForHuman) return 'waiting-for-you';
-    if (last?.running && isWriteEvent(last)) return 'working';
+    if (this.events.some(event => event.running && isWriteEvent(event))) return 'working';
     if (
       last &&
       !last.running &&
@@ -169,7 +200,8 @@ class Presence {
     return 'idle';
   }
 
-  setRegistration(registration: RegistrationResult): void {
+  setRegistration(registration: RegistrationResult, sessionId = this.activeSessionId): void {
+    if (sessionId !== this.activeSessionId) return;
     this.registration = registration;
     this.announce();
   }
