@@ -1,0 +1,23 @@
+SUBSTRATE DEMO IMAGING DATA ATTRIBUTION
+
+The bundled local demo archive contains two de-identified CT series from the
+National Lung Screening Trial (NLST), distributed by The Cancer Imaging Archive
+and the NCI Imaging Data Commons under CC BY 4.0.
+
+Current series (158 images)
+Study:  1.2.840.113654.2.55.302957049620416109572494829313844992999
+Series: 1.2.840.113654.2.55.60458735496393490723304567091309771081
+
+Prior series (149 images)
+Study:  1.2.840.113654.2.55.8790539037983910932933668152636658031
+Series: 1.2.840.113654.2.55.297188825848849138708491937791320762236
+
+National Lung Screening Trial Research Team. Data from the National Lung
+Screening Trial (NLST). The Cancer Imaging Archive (2013).
+https://doi.org/10.7937/TCIA.HMQ8-J677
+
+License: Creative Commons Attribution 4.0 International
+https://creativecommons.org/licenses/by/4.0/
+
+Verified per series with idc-index 0.12.5 and IDC v24 index data on 2026-09-03.
+https://github.com/ImagingDataCommons/idc-index

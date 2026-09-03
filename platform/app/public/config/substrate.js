@@ -10,8 +10,9 @@
  * Seeded case: NLST participant 122615, annual low-dose chest CT screening
  * rounds on 2000-01-02 and 2001-01-02. A real one-year interval on one patient
  * is what makes lesion propagation across timepoints demonstrable at all.
- * NLST in IDC is CC BY 4.0 — VERIFY per series and bundle IDC's attribution
- * before this appears anywhere public.
+ * Both exact series were verified individually as NLST / CC BY 4.0 in IDC's
+ * official index on 2026-09-03. The bundled notice is served at
+ * /NLST-ATTRIBUTION.txt; the repository record is DATA_ATTRIBUTION.md.
  *
  * Setup:
  *   docker run -d --name substrate-orthanc -p 8042:8042 \

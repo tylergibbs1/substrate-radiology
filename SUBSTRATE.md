@@ -125,8 +125,9 @@ absent costs you the tools and nothing else.
 
 **Real.** The imaging: NLST participant 122615, annual low-dose chest CT
 screening rounds from the National Lung Screening Trial, via the NCI Imaging Data
-Commons. De-identified and public. NLST in IDC is CC BY 4.0 — verify per series
-and bundle IDC's attribution before publishing. The geometry, the measurements,
+Commons. De-identified and public. Both exact series were verified individually
+as CC BY 4.0 in IDC's official index; the identifiers, source citation, license,
+and bundled notice are in [`DATA_ATTRIBUTION.md`](DATA_ATTRIBUTION.md). The geometry, the measurements,
 the propagation, the canonical hash and the signature binding are all real.
 
 **Seeded.** Only which studies are loaded. Nothing about the clinical content is
@@ -152,6 +153,14 @@ signature staleness, and human-only export.
 
 **Deferred by scope.** Deployment and the public judging URL are intentionally
 not part of this local completion pass.
+
+## Acceptance
+
+The complete S1–S7 workflow is recorded as one executable WebMCP acceptance run
+in [`docs/acceptance/s1-s7/README.md`](docs/acceptance/s1-s7/README.md). It keeps
+the radiologist-only actions—drawing, adjusting, accepting, signing, and
+exporting—outside the agent surface and verifies signature staleness after an
+edit.
 
 ## How this differs
 

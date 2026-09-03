@@ -1,0 +1,29 @@
+{
+  "verifiedAt": "2026-09-03",
+  "source": {
+    "client": "idc-index 0.12.5",
+    "dataPackage": "idc-index-data 24.2.2",
+    "idcRelease": "v24",
+    "query": "SELECT collection_id, StudyInstanceUID, SeriesInstanceUID, instanceCount, source_DOI, license_short_name FROM index WHERE SeriesInstanceUID = ?"
+  },
+  "series": [
+    {
+      "role": "current",
+      "collection_id": "nlst",
+      "StudyInstanceUID": "1.2.840.113654.2.55.302957049620416109572494829313844992999",
+      "SeriesInstanceUID": "1.2.840.113654.2.55.60458735496393490723304567091309771081",
+      "instanceCount": 158,
+      "source_DOI": "10.7937/tcia.hmq8-j677",
+      "license_short_name": "CC BY 4.0"
+    },
+    {
+      "role": "prior",
+      "collection_id": "nlst",
+      "StudyInstanceUID": "1.2.840.113654.2.55.8790539037983910932933668152636658031",
+      "SeriesInstanceUID": "1.2.840.113654.2.55.297188825848849138708491937791320762236",
+      "instanceCount": 149,
+      "source_DOI": "10.7937/tcia.hmq8-j677",
+      "license_short_name": "CC BY 4.0"
+    }
+  ]
+}
