@@ -12,8 +12,7 @@ ENV PATH=/src/node_modules/.bin:$PATH
 
 COPY . .
 RUN bun pm cache rm \
-  && bun install \
-  && bun add ajv@8.12.0
+  && bun install
 
 ARG APP_CONFIG=config/substrate-railway.js
 ARG PUBLIC_URL=/
