@@ -27,6 +27,51 @@ import { token } from './designTokens';
  */
 
 let controller: AbortController | null = null;
+const HOST_THEME_ID = 'substrate-host-theme';
+const HOST_THEME = `
+  :root.substrate-mode {
+    --highlight: 0 0% 85%;
+    --neutral: 0 0% 49%;
+    --neutral-light: 0 0% 85%;
+    --neutral-dark: 0 0% 11%;
+    --background: 0 0% 2%;
+    --foreground: 0 0% 100%;
+    --card: 0 0% 11%;
+    --card-foreground: 0 0% 100%;
+    --popover: 0 0% 11%;
+    --popover-foreground: 0 0% 100%;
+    --primary: 0 0% 85%;
+    --primary-foreground: 0 0% 11%;
+    --secondary: 0 0% 17%;
+    --secondary-foreground: 0 0% 85%;
+    --muted: 0 0% 11%;
+    --muted-foreground: 0 0% 85%;
+    --accent: 0 0% 17%;
+    --accent-foreground: 0 0% 100%;
+    --border: 0 0% 17%;
+    --input: 0 0% 22%;
+    --ring: 0 0% 27%;
+  }
+  .substrate-mode [data-active='true'] button { background: ${token['surface/inset']} !important; color: ${token['ink/high']} !important; }
+  .substrate-mode .border-highlight { border-color: ${token['border/strong']} !important; }
+  .substrate-mode .text-primary,
+  .substrate-mode .text-primary-light,
+  .substrate-mode .text-primary-active,
+  .substrate-mode .text-highlight { color: ${token['ink/low']} !important; }
+  .substrate-mode .bg-primary,
+  .substrate-mode .bg-primary-main,
+  .substrate-mode .bg-primary-active,
+  .substrate-mode .bg-primary-light,
+  .substrate-mode .bg-primary-dark,
+  .substrate-mode .bg-secondary-dark,
+  .substrate-mode .bg-secondary-main,
+  .substrate-mode .bg-secondary-light,
+  .substrate-mode .bg-highlight,
+  .substrate-mode .bg-customblue-40 { background-color: ${token['surface/inset']} !important; }
+  .substrate-mode .border-primary,
+  .substrate-mode .border-primary-dark,
+  .substrate-mode .border-secondary-light { border-color: ${token['border/strong']} !important; }
+`;
 
 const substrateExtension = {
   id,
@@ -38,6 +83,11 @@ const substrateExtension = {
    * tool surface always matches the route the radiologist is actually on.
    */
   onModeEnter: async ({ servicesManager, commandsManager, extensionManager }): Promise<void> => {
+    document.documentElement.classList.add('substrate-mode');
+    const hostTheme = document.getElementById(HOST_THEME_ID) ?? document.createElement('style');
+    hostTheme.id = HOST_THEME_ID;
+    hostTheme.textContent = HOST_THEME;
+    if (!hostTheme.isConnected) document.head.append(hostTheme);
     document.documentElement.style.setProperty('--substrate-surface-bed', token['surface/bed']);
     document.documentElement.style.setProperty('--substrate-surface-inset', token['surface/inset']);
     document.documentElement.style.setProperty(
@@ -98,6 +148,8 @@ const substrateExtension = {
     document.documentElement.style.removeProperty('--substrate-surface-bed');
     document.documentElement.style.removeProperty('--substrate-surface-inset');
     document.documentElement.style.removeProperty('--substrate-surface-raised');
+    document.documentElement.classList.remove('substrate-mode');
+    document.getElementById(HOST_THEME_ID)?.remove();
     unmountAgentIsland();
   },
 };

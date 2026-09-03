@@ -139,8 +139,9 @@ SHA-256 report digest; both visibly identify a stale signature after the report
 changes. Export remains a human action inside the signed-report receipt rather
 than an agent tool. The autonomy level and standing instructions are set only in
 the viewer; Assist holds workflow writes for an explicit Apply or Skip decision,
-and `get_context` reports the level, instructions, and pending confirmations.
-Full prep deterministically waits for OHIF's viewports, discovers and hangs the
+Auto-prep carries out requested writes without opening-study preparation, and
+`get_context` reports the level, instructions, and pending confirmations. Full
+prep deterministically waits for OHIF's viewports, discovers and hangs the
 latest prior, applies display presets, propagates labeled measurements as
 proposals, compares accepted measurements, and prepares a draft when labeled
 evidence exists. With no labeled evidence, the panel asks the reader to label a

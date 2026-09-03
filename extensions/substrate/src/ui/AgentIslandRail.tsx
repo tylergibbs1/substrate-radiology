@@ -65,11 +65,18 @@ export function AgentIslandRail({
               filled={!unavailable}
               error={session === 'error'}
             />
-            <span>{railVerb}</span>
+            <span
+              className="substrate-state-copy"
+              key={railVerb}
+            >
+              {railVerb}
+            </span>
           </>
         )}
       </span>
       <span
+        className="substrate-state-copy"
+        key={railObject}
         style={{
           minWidth: 0,
           overflow: 'hidden',

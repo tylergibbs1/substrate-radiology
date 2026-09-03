@@ -3,7 +3,7 @@ import React from 'react';
 import { autonomy } from '../engine/autonomy';
 import type { Proposal } from '../engine/proposals';
 import { currentVersion } from '../engine/report';
-import { autonomyLabel, token } from '../designTokens';
+import { autonomyLabel, token, type SessionState } from '../designTokens';
 import type { ToolCallEvent } from '../webmcp/presence';
 import type { RegistrationResult, WebMcpTool } from '../webmcp/spec';
 import { ReviewThread } from './ReviewThread';
@@ -16,6 +16,7 @@ import {
 } from './AgentIslandDomainPanels';
 import type { IslandCommand } from './agentIslandModel';
 import { listResetStyle, panelHeadingStyle } from './agentIslandStyles';
+import { AgentMark, ThinkingIndicator } from './ThinkingIndicator';
 
 type Props = {
   services: Record<string, unknown>;
@@ -33,6 +34,9 @@ type Props = {
   bursts: ToolCallEvent[][];
   toolAudit: WebMcpTool[];
   registration: RegistrationResult;
+  session: SessionState;
+  railVerb: string;
+  railObject: string;
 };
 
 export function AgentIslandExpanded({
@@ -51,6 +55,9 @@ export function AgentIslandExpanded({
   bursts,
   toolAudit,
   registration,
+  session,
+  railVerb,
+  railObject,
 }: Props): React.ReactElement {
   const autonomyLevel = autonomy.getLevel();
 
@@ -118,18 +125,83 @@ export function AgentIslandExpanded({
 
         <header style={{ display: 'grid', gap: token['space/md'] }}>
           <div
-            aria-label={`Preparation mode: ${autonomyLabel(autonomyLevel)}`}
-            role="status"
-            style={{
-              color: token['ink/high'],
-              font: token['text/ui'],
-            }}
+            aria-label="Preparation mode"
+            style={{ display: 'flex', gap: token['space/sm'] }}
           >
-            {autonomyLabel(autonomyLevel)}
+            {(['assist', 'auto-prep', 'full-prep'] as const).map(level => (
+              <button
+                className="substrate-control substrate-autonomy-pill"
+                key={level}
+                type="button"
+                aria-pressed={autonomyLevel === level}
+                onClick={() => autonomy.setLevel(level)}
+              >
+                {autonomyLabel(level)}
+              </button>
+            ))}
           </div>
           <p style={{ margin: 0, color: token['ink/low'], font: token['text/ui'] }}>
             Nothing reads the image, chooses its own coordinates, or signs.
           </p>
+          <div
+            role="status"
+            aria-live="polite"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'auto auto minmax(0, 1fr) auto',
+              alignItems: 'center',
+              gap: token['space/sm'],
+              minHeight: 32,
+              paddingTop: token['space/sm'],
+              borderTop: `1px solid ${token['border/strong']}`,
+            }}
+          >
+            {session === 'working' ? (
+              <ThinkingIndicator
+                size="compact"
+                showIcon
+              />
+            ) : (
+              <AgentMark error={session === 'error'} />
+            )}
+            {session !== 'working' ? (
+              <span
+                className="substrate-state-copy"
+                key={railVerb}
+              >
+                {railVerb}
+              </span>
+            ) : null}
+            <span
+              className="substrate-state-copy"
+              key={railObject}
+              style={{
+                minWidth: 0,
+                overflow: 'hidden',
+                color: token['ink/low'],
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+              }}
+            >
+              {railObject}
+            </span>
+            <button
+              className="substrate-control substrate-touch-hitbox"
+              type="button"
+              onClick={() => window.dispatchEvent(new Event('substrate:collapse-agent-panel'))}
+              style={{
+                position: 'relative',
+                padding: 0,
+                color: token['ink/low'],
+                background: 'transparent',
+                border: 0,
+                font: token['text/ui'],
+                cursor: 'pointer',
+              }}
+            >
+              Collapse
+            </button>
+          </div>
         </header>
 
         <details style={{ borderTop: `1px solid ${token['border/hairline']}` }}>
@@ -150,31 +222,6 @@ export function AgentIslandExpanded({
               borderRadius: token['radius/inner'],
             }}
           >
-            <label
-              style={{
-                display: 'grid',
-                gridTemplateColumns: '18px minmax(0, 1fr)',
-                alignItems: 'center',
-                gap: token['space/md'],
-                minHeight: token['hit/target'],
-                color: token['ink/high'],
-                font: token['text/ui'],
-                cursor: 'pointer',
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={autonomyLevel === 'assist'}
-                onChange={event => autonomy.setLevel(event.target.checked ? 'assist' : 'full-prep')}
-                style={{
-                  width: 18,
-                  height: 18,
-                  margin: 0,
-                  accentColor: token['action/primary'],
-                }}
-              />
-              <span>Ask before viewer changes</span>
-            </label>
             <textarea
               aria-label="Standing instructions"
               rows={2}

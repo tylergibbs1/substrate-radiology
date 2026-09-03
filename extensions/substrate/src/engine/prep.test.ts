@@ -154,13 +154,16 @@ describe('Full prep', () => {
     expect(calls).not.toContain('draft_report');
   });
 
-  it('does nothing when viewer changes require confirmation', async () => {
-    autonomy.setLevel('assist');
-    const execute = jest.fn();
+  it.each(['assist', 'auto-prep'] as const)(
+    'does not run opening-study preparation at %s',
+    async level => {
+      autonomy.setLevel(level);
+      const execute = jest.fn();
 
-    await expect(
-      runFullPrep([tool('get_context', execute)], new AbortController().signal, 0)
-    ).resolves.toEqual({ status: 'skipped', steps: [] });
-    expect(execute).not.toHaveBeenCalled();
-  });
+      await expect(
+        runFullPrep([tool('get_context', execute)], new AbortController().signal, 0)
+      ).resolves.toEqual({ status: 'skipped', steps: [] });
+      expect(execute).not.toHaveBeenCalled();
+    }
+  );
 });

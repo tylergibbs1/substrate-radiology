@@ -3,11 +3,12 @@ version: alpha
 name: Substrate
 description: A darkroom instrument for reading medical images alongside an agent. Pure black room, a neutral grey ladder with no colour in it at all, and a single violet signal that belongs to the agent and to nothing else. The accent is tuned to survive both ends of a windowed CT, which is the only constraint that mattered. All type is one weight; hierarchy comes from size and tracking. No shadows, no gradients, no eyebrows, no all-caps. The agent is a 6px lamp and a 2px ring, never a persona.
 colors:
-  surface: "#000000"
-  surface-bed: "#0b0b0e"
+  surface: "#040404"
+  surface-bed: "#101014"
   surface-card: "#1c1c1c"
   surface-inset: "#2a2a2a"
   surface-raised: "#383838"
+  line-strong: "#464646"
   on-surface: "#ffffff"
   on-surface-muted: "#d8d8d8"
   on-surface-dim: "#7b7b7b"
@@ -117,6 +118,16 @@ components:
     textColor: "{colors.on-signal}"
     rounded: "{rounded.inner}"
     size: 40px
+  level-pill:
+    backgroundColor: "{colors.surface-card}"
+    borderColor: "{colors.on-surface-dim}"
+    textColor: "{colors.on-surface-muted}"
+    typography: "{typography.ui-md}"
+    rounded: "{rounded.inner}"
+    padding: 6px 12px
+  level-pill-active:
+    backgroundColor: "{colors.signal-mark}"
+    textColor: "{colors.on-signal}"
   input-line:
     backgroundColor: "{colors.surface-card}"
     textColor: "{colors.on-surface}"
@@ -171,32 +182,46 @@ than from a shadow or a border.
 
 | Level | Token | Value | Purpose |
 |---|---|---|---|
-| 0 | `surface` | `#000000` | The room. Every surface sits on it. |
-| 1 | `surface-bed` | `#0b0b0e` | The ground under the images. One whisper of a step off the room, so bright pixels stay dominant. |
+| 0 | `surface` | `#040404` | The room. Every surface sits on it. Not pure black: on an OLED reading monitor `#000000` clips to panel-off, which turns the step to the bed into an on-off edge rather than a step. |
+| 1 | `surface-bed` | `#101014` | The ground under the images. One whisper of a step off the room, so bright pixels stay dominant. |
 | 2 | `surface-card` | `#1c1c1c` | Panel and sheet. The one interface surface. |
 | 3 | `surface-inset` | `#2a2a2a` | A group inside a panel. Replaces a border. |
 | 4 | `surface-raised` | `#383838` | A question or a sheet over a panel. The only level that overlaps another. |
+| — | `line-strong` | `#464646` | Never a surface. The top of the hairline scale, so `surface-raised` has a strong rule available. |
 
-Adjacent steps run 1.068, 1.153, 1.187, 1.224, widening as they rise. Every
+Adjacent steps run 1.080, 1.114, 1.187, 1.224, widening as they rise. Every
 level is chroma zero. A tinted surface under a chromatic accent is two hues
 quietly disagreeing, and the accent is the only thing in this product allowed
 to have an opinion about colour.
 
-Hairlines derive from the next level up, never from a fixed grey. A rule on
-`surface-card` is `surface-inset`; a rule on `surface-inset` is
-`surface-raised`. A hairline is therefore always exactly one step of
-separation, and it never has to be tuned per surface.
+Hairlines derive from the ladder, never from a fixed grey, and there are two
+weights because one is not enough. A row separator inside a group and the
+group's own boundary cannot be the same value, or they compete.
+
+**Quiet** is one level up. Separates peers: rows in a list, sentences in a
+section, steps in a plan. On `surface-card` that is `surface-inset`, a ratio
+of 1.19.
+
+**Strong** is two levels up. Separates regions: the head of a panel from its
+body, a footer from what it closes. On `surface-card` that is
+`surface-raised`, a ratio of 1.45. `line-strong` exists so that
+`surface-raised` has a strong rule available; it is a hairline value and never
+a surface.
+
+A hairline is therefore always one step or two, and it never has to be tuned
+per surface. If a boundary needs more than strong, it is not a boundary, it is
+a change of surface.
 
 - **On-surface (#ffffff):** Sentences, headings, the reader's own words.
 - **On-surface-muted (#d8d8d8):** Measurements, citations, technical
   readouts, resolved steps.
-- **On-surface-dim (#7b7b7b):** Disabled fills and non-text decoration only.
-  It never carries words, labels, metadata, placeholders, or state. Muted is
-  the quietest text colour; disabled text uses its dedicated semantic token.
+- **On-surface-dim (#7b7b7b):** Placeholders, disabled states, steps not yet
+  reached, and the only grey light enough to carry small text on every level
+  of the ladder: 4.35 on `surface-card`, 3.39 on `surface-raised`.
 - **Primary (#ffffff) on On-primary (#1c1c1c):** The one filled action per
   surface. Light on dark; the reverse of the surface it sits on.
 - **Signal-mark (#8b76ff):** The agent, on an interface surface. Solid marks
-  only: the lamp and the arrow. 5.38 on `surface-card`.
+  only: the lamp, the arrow, the active pill. 5.38 on `surface-card`.
 - **Signal-stroke (#6d52ff):** The agent, on an image. Thin strokes only: the
   2px presence ring, the 1px ring of an unsupported lamp. Tuned to the
   measured optimum, 4.00 worst case across a windowed CT. A thin stroke reads
@@ -270,6 +295,17 @@ container's `gap` own the rhythm. Two sources for one gap is a defect, and it
 is never repaired with a one-off margin on the element that looks wrong.
 Repair the grouping or the owner.
 
+### Meaning and identity are separate acts
+
+A signature carries two things, and they do not merge. The affirmation states
+that the reader reviewed the report and takes responsibility for it. The
+identity states who they are. Collapsing them, so that typing a name
+completes the sentence, reads well and removes the wrong half: when a passkey
+later supplies the identity, the typed name becomes decoration and nothing is
+left carrying the meaning.
+
+The affirmation is its own act, and it stays. The name field is provisional.
+
 ### Reach
 
 Minimum interactive target is 44 by 44px, measured on the hit area rather
@@ -316,11 +352,8 @@ interface surface. Depth is the step from black room to ink card, plus 1px
 hairlines. A gradient near the images would read as image content, and a
 shadow implies a floating panel, which this product does not have.
 
-The only surface gradient permitted is the radial falloff inside an empty
-viewport, which is scaffolding for absent pixels and disappears when a study
-loads. While the agent is working, its `Working` label may use the single text
-shimmer: muted to white to muted over 1600ms. The lamp itself stays static and
-reduced-motion users receive the plain muted label.
+The only gradient permitted is the radial falloff inside an empty viewport,
+which is scaffolding for absent pixels and disappears when a study loads.
 
 ## Shapes
 
@@ -330,7 +363,7 @@ Outer radius equals inner radius plus padding. A card at `outer` 20 with 12px
 padding holds an `inner` 8 group exactly, and that arithmetic is why the
 padding is 12 rather than 16. Viewports take `outer`, the same as cards, so
 images read as plates on a bench. Buttons, groups and inline questions take
-`inner`. Lamps are `full`.
+`inner`. Lamps and pills are `full`.
 
 A group whose corner is tighter than the card holding it is the mismatch that
 reads as slightly wrong without being nameable. Check the arithmetic before
@@ -379,6 +412,8 @@ Tables are evidence:
   muted on hover. Every other action.
 - **Arrow send:** 40x40, the only signal fill larger than 6px, holding an
   ink arrow. It commits an intent.
+- **Level pill:** Outlined, 12px radius; fills with signal and flips to ink
+  text when active.
 - **Input line:** No box. A single bottom hairline that brightens on focus.
   Text sits at body-lg, so typing is the largest thing on the surface.
 - **Citation:** Mono, muted, underlined with a dim rule. It is a jump to the
@@ -404,6 +439,7 @@ Tables are evidence:
   rather than as one stack value.
 - Do give every interactive mark a 44px target, however small it is drawn.
 - Do let the reader own the scroll position during a run.
+- Do show what a standing instruction has done, not only what it says.
 - Do hold a transient failure for two seconds before showing it.
 - Do name the system a surface belongs to, Bench or Plate, before choosing a
   type size.
@@ -418,15 +454,43 @@ Tables are evidence:
   colour is close enough to the accent in luminance that it could not be a
   second accent even if the rule allowed one.
 - Don't draw a border where a step up the ladder would say the same thing.
+- Don't use one hairline weight for both peers and regions.
+- Don't set the room to pure black.
 - Don't set text in a surface value, or a surface in a text value.
 - Don't apply shadows or interface gradients.
 - Don't say "AI" in the interface. The agent's suggestions are "suggested."
 - Don't let any surface float over the images.
 - Don't wrap a single write in a summary, a plan, or a group.
+- Don't build a composer, a tool list, or a call count. The browser has them.
+- Don't leave a hue anywhere in the host chrome.
+- Don't show the strip and the panel at the same time.
+- Don't render only the selected level of the dial. All three stay visible or
+  the mode is invisible.
+- Don't merge the affirmation into the signer field.
 - Don't load a typeface from a third-party origin. Bundle it, because the
   reading network will not reach one.
 - Don't put the signal on the signing action. The agent cannot sign, so it
   must not wear the agent's color.
+
+## Known gaps
+
+Stated so that a reader of this file knows where it stops.
+
+- No light mode. The reading room is dim and the system does not describe a
+  light theme.
+- Leader lines for overlapping targets on an image are unsolved. Labels sit in
+  a lane at the frame edge, which works until two targets need the same line.
+- The docked panel width is not derived. It should be measured from the widest
+  real row at real type, and it currently is not.
+- `error` and the accent cannot be separated by colour, so shape carries the
+  distinction. If a third state ever needs a colour, this system has no answer
+  for it.
+- Nothing here describes the worklist, the study list, or anything before a
+  study is open.
+- The neutral host theme maps OHIF's semantic theme variables while Substrate
+  mode is mounted. New host tokens must enter that map before they ship.
+- Motion outside the presence signature is limited to the 180ms state-copy
+  transition. Other transitions remain local until they recur.
 
 ## Changing this system
 
@@ -434,6 +498,37 @@ A change to any surface ships with a before and an after image. A change that
 depends on motion, timing, or a transition ships with a short recording of it
 running. A value that claims a contrast, a luminance, or a target size ships
 with the number that was measured, not the number that was intended.
+
+## The host's chrome
+
+Substrate runs inside a viewer that has its own theme, and the stock theme is
+blue: the toolbar, the icons, the active tool, the active viewport edge, and
+the patient chip. Measured against the accent, those hues sit 28 to 37 degrees
+away, which is the same family to a glancing eye. An accent that is the only
+colour in the product is not the only colour on the screen, and the premise
+collapses.
+
+Substrate mode therefore ships a neutral host theme. Every hue in the toolbar,
+the icon set, and the viewport chrome goes to chroma zero, and the active
+states are carried by the ladder: a selected tool is `surface-inset`, an
+active viewport edge is `line-strong`. Nothing in the host is allowed a hue.
+
+This is not a preference about the viewer's taste. Any accent, in any hue,
+fails the same way if the chrome around it is chromatic, because the eye
+finds the rarest colour and there is no rarest colour when everything is
+tinted.
+
+## What the site does not build
+
+The browser already supplies the place a person types to the agent, the list
+of tools the site exposes, and the read and write counts. Building any of
+those again inside the panel produces a second, worse copy of something the
+reader already has.
+
+So there is no composer in this product. A prompt arrives from the browser's
+own surface, and the panel reports what happened to the study. The standing
+instructions list is the exception that proves the rule: it is site data,
+authored in the site, and no tool can read or write it.
 
 ## Accountability
 
@@ -468,21 +563,36 @@ name in a chat bubble, never a persona.
   animation. Motion is never the only channel; the dot and the lamp are
   static.
 
+## Standing instructions
+
+Standing instructions are not a preference field. They are a list the reader
+builds over months, and each one is an artifact with a history.
+
+Every instruction is its own row carrying a mark, its text, the number of
+times it has fired, and when it was written. A count is the evidence that an
+instruction became a real part of how someone reads: one that has fired 148
+times is a hanging protocol its author never had to write in code, and one
+that has fired three times in a month is a preference that did not survive
+contact with the work.
+
+Pausing is not deleting. A paused instruction keeps its history, so a reader
+can stop one for a difficult case and resume it without rebuilding what it
+knew. Deleting is a separate, quieter action.
+
+Rows share lanes, so a long instruction can never move a count. The panel
+states how many are running and how many of those are layout only, because
+layout instructions run whether or not an agent is connected.
+
 ## Autonomy
 
-Full prep is the single opinionated default and the only preparation state
-shown in the panel header. It prepares the current study and prior when a study
-opens, then carries out requested workflow changes without another prompt.
+Three levels sit as outlined pills; the active one fills with signal. Beside
+them, one sentence that never changes: nothing reads the image, chooses its
+own coordinates, or signs. It is static because it describes what is fixed,
+and the pills describe what moves.
 
-The one exception is `Ask before viewer changes`, a checkbox inside
-Preferences. Enabling it changes the current state label to `Ask before changes`
-and presents Apply and Skip inline at the surface a write concerns. Disabling it
-returns to Full prep. There is no user-facing Auto-prep mode and no row of equal
-autonomy pills.
-
-Beside the current state, one sentence never changes: nothing reads the image,
-chooses its own coordinates, or signs. It describes the fixed clinical boundary;
-the preference changes only when workflow writes require confirmation.
+At the most cautious level the question appears inline at the surface it
+concerns, with the choices stated as actions rather than as yes and no.
+Elsewhere the write happens and the undo is offered.
 
 ## Live surfaces
 
@@ -496,6 +606,13 @@ moment the reader scrolls up, following stops, and it does not resume until
 they return to the bottom themselves. New entries arriving off screen are
 announced by a count, never by a jump. Nothing scrolls the reader's view
 during a run.
+
+### The strip is the collapsed state
+
+The status strip and the panel never appear together. The strip exists so
+that a collapsed panel still reports state; when the panel is open it owns
+the state line and the strip is gone. A strip beside an open panel shows the
+same status twice and offers to open something already open.
 
 ### Stop exists from the moment the agent is committed
 
@@ -517,6 +634,14 @@ marks.
 Coalescing exists for a run of writes. A single write is stated directly, in
 past tense with its parameter, with no summary wrapper, no plan card, and no
 group. A summary that summarises one thing is longer than the thing.
+
+### State copy changes without snapping
+
+When status, activity, or elapsed copy changes in place, the replacement fades
+in over 180ms with at most 2px of vertical travel. The container keeps its
+dimensions; text never animates layout. Reduced-motion users receive an
+immediate replacement. This transition is for changing copy, not for static
+history rows.
 
 ## Copy
 

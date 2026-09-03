@@ -10,6 +10,7 @@ import { Onboarding, ResizablePanelGroup, ResizablePanel, ResizableHandle } from
 import useResizablePanels from './ResizablePanelsHook';
 
 const resizableHandleClassName = 'mt-[1px] bg-black';
+const substrateStatusPanelId = '@substrate/extension-substrate.panelModule.agentStatus';
 
 function ViewerLayout({
   // From Extension Module Params
@@ -199,6 +200,7 @@ function ViewerLayout({
                   />
                 </div>
                 {bottomPanels.map(panel => {
+                  if (panel.id === substrateStatusPanelId && !rightPanelClosedState) return null;
                   const BottomPanel = panel.content as React.ComponentType;
                   return <BottomPanel key={panel.id} />;
                 })}

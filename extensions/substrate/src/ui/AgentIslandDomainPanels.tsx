@@ -11,7 +11,6 @@ import {
   formatActivity,
   IN_FLIGHT,
   relative,
-  summarizeBurst,
 } from './agentIslandModel';
 import {
   listResetStyle,
@@ -247,21 +246,29 @@ export function SuggestedMeasurements({
 
 export function RecentWork({ bursts }: { bursts: ToolCallEvent[][] }): React.ReactElement | null {
   if (bursts.length === 0) return null;
+  const events = bursts
+    .flat()
+    .slice(0, 8)
+    .reverse()
+    .filter(
+      (event, index, ordered) =>
+        index === 0 || finishedPhrase(event) !== finishedPhrase(ordered[index - 1])
+    )
+    .slice(-4);
   return (
     <section style={sectionStyle}>
       <h2 style={panelHeadingStyle}>Recent work</h2>
       <ol style={{ ...listResetStyle, display: 'grid' }}>
-        {bursts.slice(0, 3).map(burst => {
-          const newest = burst[0];
-          const undo = burst.find(event => event.undo)?.undo;
+        {events.map(event => {
+          const undo = event.undo;
           return (
             <li
-              key={newest.callId}
-              title={new Date(newest.startedAt).toLocaleString()}
+              className="substrate-history-row"
+              key={event.callId}
               style={{
                 display: 'grid',
-                gridTemplateColumns: `${token['agent/lamp-size']} minmax(0,1fr)`,
-                alignItems: 'start',
+                gridTemplateColumns: `${token['agent/lamp-size']} minmax(0,1fr) auto ${token['lane/history-time']}`,
+                alignItems: 'baseline',
                 columnGap: token['space/md'],
                 minHeight: token['hit/target'],
                 padding: `${token['space/sm']} 0`,
@@ -272,77 +279,65 @@ export function RecentWork({ bursts }: { bursts: ToolCallEvent[][] }): React.Rea
                 style={{
                   display: 'flex',
                   minHeight: '19px',
+                  alignSelf: 'center',
                   alignItems: 'center',
                 }}
               >
-                <AgentMark error={!newest.ok} />
+                <AgentMark error={!event.ok} />
               </span>
-              <div
+              <p
                 style={{
-                  display: 'flex',
-                  flexWrap: 'wrap',
-                  alignItems: 'baseline',
-                  columnGap: token['space/md'],
-                  rowGap: token['space/xs'],
+                  minWidth: 0,
+                  margin: 0,
+                  overflow: 'hidden',
+                  color: event.ok ? token['ink/high'] : token['status/error'],
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
                 }}
               >
-                <p
+                {finishedPhrase(event)}
+              </p>
+              {undo ? (
+                <button
+                  className="substrate-control substrate-touch-hitbox substrate-history-undo"
+                  type="button"
+                  onClick={undo}
                   style={{
-                    flex: '1 1 150px',
-                    minWidth: 0,
-                    margin: 0,
-                    color: newest.ok ? token['ink/high'] : token['status/error'],
-                    textWrap: token['wrap/body'],
+                    position: 'relative',
+                    minHeight: 20,
+                    padding: 0,
+                    color: token['ink/low'],
+                    background: 'transparent',
+                    border: 0,
+                    font: token['text/ui'],
+                    cursor: 'pointer',
                   }}
                 >
-                  {summarizeBurst(burst)}
-                </p>
-                <div
-                  style={{
-                    display: 'flex',
-                    flex: '0 0 auto',
-                    alignItems: 'center',
-                    gap: token['space/md'],
-                    minHeight: '19px',
-                    marginLeft: 'auto',
-                  }}
+                  Undo
+                </button>
+              ) : (
+                <span />
+              )}
+              <time
+                aria-label={new Date(event.startedAt).toLocaleString()}
+                style={{
+                  width: token['lane/history-time'],
+                  color: token['ink/low'],
+                  font: token['text/measure'],
+                  fontFeatureSettings: token['feature/tabular'],
+                  fontVariantNumeric: 'tabular-nums',
+                  letterSpacing: token['tracking/data'],
+                  textAlign: 'right',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                <span
+                  className="substrate-state-copy"
+                  key={relative(Date.now() - event.startedAt)}
                 >
-                  {undo ? (
-                    <button
-                      className="substrate-control substrate-touch-hitbox"
-                      type="button"
-                      onClick={undo}
-                      style={{
-                        position: 'relative',
-                        minHeight: 20,
-                        padding: `0 ${token['space/xs']}`,
-                        color: token['ink/low'],
-                        background: 'transparent',
-                        border: 0,
-                        font: token['text/ui'],
-                        cursor: 'pointer',
-                      }}
-                    >
-                      Undo
-                    </button>
-                  ) : null}
-                  <time
-                    style={{
-                      width: token['lane/history-time'],
-                      flex: 'none',
-                      color: token['ink/low'],
-                      font: token['text/measure'],
-                      fontFeatureSettings: token['feature/tabular'],
-                      fontVariantNumeric: 'tabular-nums',
-                      letterSpacing: token['tracking/data'],
-                      textAlign: 'right',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {relative(Date.now() - newest.startedAt)}
-                  </time>
-                </div>
-              </div>
+                  {relative(Date.now() - event.startedAt)}
+                </span>
+              </time>
             </li>
           );
         })}

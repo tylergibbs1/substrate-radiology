@@ -62,6 +62,13 @@ const SidePanelWithServices = ({
     setSidePanelExpanded(isExpanded);
   }, [isExpanded]);
 
+  useEffect(() => {
+    if (side !== 'right') return;
+    const collapse = () => handleClose();
+    window.addEventListener('substrate:collapse-agent-panel', collapse);
+    return () => window.removeEventListener('substrate:collapse-agent-panel', collapse);
+  }, [handleClose, side]);
+
   /** update the active tab index from outside */
   useEffect(() => {
     setActiveTabIndex(activeTabIndexProp ?? 0);

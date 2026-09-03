@@ -28,11 +28,12 @@ export const token = {
   'session/done': 'Done',
   'session/error': 'Error',
 
-  'autonomy/assist': 'Ask before changes',
+  'autonomy/assist': 'Assist',
+  'autonomy/auto-prep': 'Auto-prep',
   'autonomy/full-prep': 'Full prep',
 
-  'surface/room': '#000000',
-  'surface/bed': '#0b0b0e',
+  'surface/room': '#040404',
+  'surface/bed': '#101014',
   'surface/panel': '#1c1c1c',
   'surface/inset': '#2a2a2a',
   'surface/raised': '#383838',
@@ -40,6 +41,7 @@ export const token = {
   'system/plate': 'plate',
   // A rule on surface/card is the next surface step, never a fixed grey.
   'border/hairline': '#2a2a2a',
+  'border/strong': '#464646',
   'status/error': '#eb5757',
 
   'ink/high': '#ffffff',
@@ -51,6 +53,7 @@ export const token = {
   'motion/exit': 400,
   'motion/presence': 1150,
   'motion/shimmer': 1600,
+  'motion/state-copy': 180,
   'motion/error-hold': 2000,
 
   'text/headline': '400 24px/1.2 "Inter Tight", Inter, sans-serif',
@@ -88,7 +91,7 @@ export const token = {
 } as const;
 
 export type SessionState = 'idle' | 'working' | 'waiting-for-you' | 'done' | 'error';
-export type AutonomyLevel = 'assist' | 'full-prep';
+export type AutonomyLevel = 'assist' | 'auto-prep' | 'full-prep';
 export type ReviewState = 'unreviewed' | 'accepted' | 'rejected' | 'stale';
 export type SurfaceSystem = 'bench' | 'plate';
 export type SurfaceElevation = 'flush' | 'raised';

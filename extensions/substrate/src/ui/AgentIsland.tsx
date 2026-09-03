@@ -239,12 +239,17 @@ export function AgentIsland({
       .substrate-island p { text-wrap: ${token['wrap/body']}; }
       .substrate-island button, .substrate-island input, .substrate-island textarea, .substrate-island select { font-weight: 400; }
       .substrate-thinking-label { color: ${token['ink/low']}; background: linear-gradient(90deg, ${token['ink/low']} 20%, ${token['ink/high']} 50%, ${token['ink/low']} 80%); background-size: 200% 100%; background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: substrate-thinking-shimmer ${token['motion/shimmer']}ms linear infinite; }
+      .substrate-state-copy { animation: substrate-state-copy-in ${token['motion/state-copy']}ms ease-out both; }
+      .substrate-autonomy-pill { min-height: 30px; padding: 4px 9px; color: ${token['ink/low']}; background: transparent; border: 1px solid ${token['on/disabled']}; border-radius: ${token['radius/full']}; font: ${token['text/ui']}; white-space: nowrap; cursor: pointer; }
+      .substrate-autonomy-pill[aria-pressed='true'] { color: ${token['on/signal']}; background: ${token['agent/mark']}; border-color: ${token['agent/mark']}; }
       .substrate-island button:focus-visible, .substrate-island input:focus-visible, .substrate-island textarea:focus-visible, .substrate-island select:focus-visible, .substrate-island summary:focus-visible { outline: 1px solid ${token['ink/low']}; outline-offset: 2px; }
       .substrate-control { transition: border-color ${token['motion/enter']}ms ease-out, color ${token['motion/enter']}ms ease-out, background-color ${token['motion/enter']}ms ease-out, transform ${token['motion/exit']}ms ease-out; }
       .substrate-control:hover { border-color: ${token['ink/low']} !important; }
       .substrate-control:active { transform: scale(.96); }
       .substrate-touch-hitbox { position: relative; }
       .substrate-touch-hitbox::after { position: absolute; top: 50%; left: 50%; width: ${token['hit/target']}; height: ${token['hit/target']}; content: ''; transform: translate(-50%, -50%); }
+      .substrate-history-undo { opacity: 0; transition: color ${token['motion/enter']}ms ease-out, opacity ${token['motion/enter']}ms ease-out; }
+      .substrate-history-row:hover .substrate-history-undo, .substrate-history-undo:focus-visible { opacity: 1; }
       .substrate-disclosure { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; width: 100%; min-height: ${token['hit/target']}; padding: 0; color: ${token['ink/low']}; font: ${token['text/ui']}; list-style: none; cursor: pointer; transition: color ${token['motion/enter']}ms ease-out; }
       .substrate-disclosure::-webkit-details-marker { display: none; }
       .substrate-disclosure::marker { content: ''; }
@@ -258,7 +263,9 @@ export function AgentIsland({
       .substrate-rail-button--primary:hover { border-color: ${token['action/primary-hover']}; background: ${token['action/primary-hover']}; color: ${token['on/primary']}; }
       .substrate-rail-button--primary:active { background: ${token['action/primary-press']}; }
       @keyframes substrate-thinking-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+      @keyframes substrate-state-copy-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
       @media (prefers-reduced-motion: reduce) { .substrate-island * { animation: none !important; transition: none !important; } }
+      @media (hover: none) { .substrate-history-undo { opacity: 1; } }
     `}</style>
   );
 
@@ -292,6 +299,9 @@ export function AgentIsland({
           bursts={bursts}
           toolAudit={toolAudit}
           registration={registration}
+          session={session}
+          railVerb={railVerb}
+          railObject={railObject}
         />
       </section>
     );

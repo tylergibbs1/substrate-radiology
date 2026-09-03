@@ -26,9 +26,7 @@ const DEFAULT_INSTRUCTIONS = ['When I label a target, suggest it on the prior.']
 function storedLevel(): AutonomyLevel {
   if (typeof window === 'undefined') return 'full-prep';
   const value = window.localStorage.getItem(LEVEL_KEY);
-  // Auto-prep was an alpha mode that duplicated Full prep after study load.
-  // Treat a stored legacy value as the new opinionated default.
-  return value === 'assist' ? 'assist' : 'full-prep';
+  return value === 'assist' || value === 'auto-prep' || value === 'full-prep' ? value : 'full-prep';
 }
 
 function storedInstructions(): string[] {
