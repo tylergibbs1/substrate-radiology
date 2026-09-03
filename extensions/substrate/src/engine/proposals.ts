@@ -1,5 +1,7 @@
 import { annotation } from '@cornerstonejs/tools'
 
+import { token } from '../designTokens'
+
 /**
  * The proposal engine.
  *
@@ -56,18 +58,18 @@ const listeners = new Set<() => void>()
  */
 const PROPOSED_STYLE = {
   lineDash: '4,4',
-  color: 'rgb(251, 191, 36)',
-  colorHighlighted: 'rgb(252, 211, 77)',
-  colorSelected: 'rgb(252, 211, 77)',
-  textBoxColor: 'rgb(251, 191, 36)',
+  color: token['state/proposed'],
+  colorHighlighted: token['state/unaligned'],
+  colorSelected: token['state/unaligned'],
+  textBoxColor: token['state/proposed'],
 }
 
 const ACCEPTED_STYLE = {
   lineDash: '',
-  color: undefined,
-  colorHighlighted: undefined,
-  colorSelected: undefined,
-  textBoxColor: undefined,
+  color: token['state/confirmed'],
+  colorHighlighted: token['state/confirmed'],
+  colorSelected: token['state/confirmed'],
+  textBoxColor: token['state/confirmed'],
 }
 
 export function subscribeProposals(listener: () => void): () => void {
@@ -94,7 +96,7 @@ export function isCitable(annotationUID: string): boolean {
 }
 
 export function pendingCount(): number {
-  return getProposals().filter((entry) => entry.state === 'proposed').length
+  return getProposals().filter(entry => entry.state === 'proposed').length
 }
 
 export function register(proposal: Proposal): void {
@@ -122,6 +124,7 @@ export function accept(annotationUID: string): boolean {
 
 export function reject(annotationUID: string): boolean {
   if (!proposals.delete(annotationUID)) return false
+  annotation.state.removeAnnotation(annotationUID)
   announce()
   return true
 }

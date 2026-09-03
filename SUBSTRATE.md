@@ -70,7 +70,7 @@ shows why instead of an empty panel.
 | Tool | Reads/writes | What it does |
 |---|---|---|
 | `get_context` | read | What is open, the timepoints, every viewport pane, the report and signature state |
-| `get_study` | read | Series with modality, description, study date and image count |
+| `get_study` | read | Discoverable current and prior series with modality, date and image count |
 | `hang_layout` | write | Sets the grid and puts named series in each pane |
 | `navigate` | write | Moves a pane to a slice, or to a measurement |
 | `set_display` | write | Window/level presets and zoom reset, per pane |
@@ -107,10 +107,11 @@ python3 scripts/seed-orthanc.py
 cd platform/app && OHIF_PORT=3010 yarn dev:substrate
 ```
 
-Then open the two seeded timepoints together:
+Then open the current seeded study. Substrate discovers the same-patient prior
+from DICOMweb metadata and loads it only when the layout asks for it:
 
 ```
-http://localhost:3010/viewer?StudyInstanceUIDs=<baseline>,<follow-up>
+http://localhost:3010/viewer?StudyInstanceUIDs=<follow-up>
 ```
 
 For the agent side, Chrome 149+ with `chrome://flags/#enable-webmcp-testing`.
@@ -132,8 +133,23 @@ the propagation, the canonical hash and the signature binding are all real.
 invented, because nothing about it is asserted: the product never says what is in
 the image.
 
-**Not implemented yet.** DICOM SR and PDF export, the review thread's reply UI,
-undo, and the by-hand timing comparison.
+**Implemented.** Signed reports export as a DICOM Part 10 Comprehensive 3D SR
+and as a paginated, selectable-text PDF. Both carry the signer, attestation and
+SHA-256 report digest; both visibly identify a stale signature after the report
+changes. Export remains a human action inside the signed-report receipt rather
+than an agent tool. The autonomy level and standing instructions are set only in
+the viewer; Assist holds workflow writes for an explicit Apply or Skip decision,
+and `get_context` reports the level, instructions, and pending confirmations.
+Full prep deterministically waits for OHIF's viewports, discovers and hangs the
+latest prior, applies display presets, propagates labeled measurements as
+proposals, compares accepted measurements, and prepares the draft without an
+agent. Every workflow write has an undo boundary, the timing comparison records
+by-hand and prepared runs, and report review supports sentence keep/remove,
+threaded replies, exact-sentence revision, template changes, version restore,
+signature staleness, and human-only export.
+
+**Deferred by scope.** Deployment and the public judging URL are intentionally
+not part of this local completion pass.
 
 ## How this differs
 

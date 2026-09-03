@@ -2,6 +2,7 @@ import React from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
 import { AgentIsland } from './AgentIsland'
+import { AgentViewportSignature } from './AgentViewportSignature'
 import { SignatureModal } from './SignatureModal'
 
 /**
@@ -28,6 +29,7 @@ export function mountAgentIsland(services: Record<string, unknown>): void {
   root = createRoot(container)
   root.render(
     <>
+      <AgentViewportSignature />
       <AgentIsland services={services} />
       <SignatureModal services={services} />
     </>

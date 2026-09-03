@@ -3,6 +3,10 @@ import { buildViewerTools } from './webmcp/viewerTools'
 import { register, type RegistrationResult } from './webmcp/spec'
 import { presence } from './webmcp/presence'
 import { mountAgentIsland, unmountAgentIsland } from './ui/mount'
+import { runFullPrep } from './engine/prep'
+import { clearProposals } from './engine/proposals'
+import { clearReport } from './engine/report'
+import { autonomy } from './engine/autonomy'
 
 /**
  * Substrate: an agent-native radiology workflow, as an OHIF extension.
@@ -51,12 +55,17 @@ const substrateExtension = {
     const result: RegistrationResult = await register(tools, controller.signal)
     presence.setRegistration(result)
     mountAgentIsland(servicesManager.services)
+    void runFullPrep(tools, controller.signal)
   },
 
   onModeExit: (): void => {
     controller?.abort()
     controller = null
     presence.setRegistration({ ok: true, registered: [] })
+    presence.clear()
+    clearProposals()
+    clearReport()
+    autonomy.setViewportResolver()
     unmountAgentIsland()
   },
 }

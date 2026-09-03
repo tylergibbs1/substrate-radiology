@@ -1,362 +1,947 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react';
 
-import { accept, getProposals, reject, subscribeProposals } from '../engine/proposals'
-import { presence, type ToolCallEvent } from '../webmcp/presence'
+import { autonomy } from '../engine/autonomy';
+import { accept, getProposal, getProposals, reject, subscribeProposals } from '../engine/proposals';
+import { isWriteEvent, presence, type ToolCallEvent } from '../webmcp/presence';
+import { autonomyLabel, sessionLabel, token, type AutonomyLevel } from '../designTokens';
+import { AgentMark, ThinkingIndicator } from './ThinkingIndicator';
+import { ReviewThread } from './ReviewThread';
+import { TimingComparison } from './TimingComparison';
+import {
+  currentVersion,
+  openReplies,
+  pendingRequest,
+  requestSignature,
+  setSentenceReview,
+  subscribeReport,
+} from '../engine/report';
+import { liveTools, type WebMcpTool } from '../webmcp/spec';
 
-/**
- * The agent's island.
- *
- * It floats over the viewport rather than living in a panel, because what the
- * agent is doing is not a property of any one pane — it follows the radiologist
- * across the hang, the measurements and the report. Tinted glass so it reads as
- * hovering above the study instead of covering part of it, and deliberately
- * quiet: on a diagnostic display the only thing allowed to be bright is the
- * image.
- *
- * Styles are inline on purpose. This mounts into a portal outside OHIF's own
- * React tree, so it cannot depend on a Tailwind build whose content globs may
- * never have heard of this package.
- */
+const BURST_GAP_MS = 3500;
 
-const WORKING_WINDOW_MS = 3000
-
-/** What each tool is doing, in the words a radiologist would use. */
-const PHRASE = new Map<string, string>([
-  ['get_context', 'looking at what is open'],
-  ['get_study', 'reading the series list'],
-  ['list_measurements', 'reading your measurements'],
+const IN_FLIGHT = new Map<string, string>([
   ['navigate', 'moving through the study'],
   ['set_display', 'adjusting the display'],
   ['hang_layout', 'hanging the study'],
-  ['propose_measurement', 'proposing a measurement on the prior'],
-  ['compare_with_prior', 'comparing with the prior'],
+  ['propose_measurement', 'proposing a measurement'],
   ['draft_report', 'drafting the report'],
-  ['request_signature', 'asking you to sign'],
-])
+  ['request_signature', 'preparing signature review'],
+]);
+
+const CONFIRMATION_LABEL = new Map<string, string>([
+  ['navigate', 'Move through the study'],
+  ['set_display', 'Adjust the display'],
+  ['hang_layout', 'Hang the study'],
+  ['propose_measurement', 'Suggest a measurement'],
+  ['draft_report', 'Draft the report'],
+]);
+
+const AUTONOMY_LEVELS: AutonomyLevel[] = ['assist', 'auto-prep', 'full-prep'];
 
 function relative(ms: number): string {
-  const seconds = Math.max(0, Math.round(ms / 1000))
-  if (seconds < 1) return 'just now'
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.round(seconds / 60)
-  return `${minutes}m ago`
+  const seconds = Math.max(0, Math.round(ms / 1000));
+  if (seconds < 1) return 'just now';
+  if (seconds < 60) return `${seconds}s ago`;
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.round(hours / 24)}d ago`;
+}
+
+function finishedPhrase(event: ToolCallEvent): string {
+  if (!event.ok) return event.resultSummary || 'The change did not go through';
+  switch (event.tool) {
+    case 'hang_layout':
+      return 'Hung the study';
+    case 'set_display':
+      return event.argsSummary ? `Applied ${event.argsSummary}` : 'Adjusted the display';
+    case 'navigate':
+      return event.argsSummary ? `Moved to ${event.argsSummary}` : 'Moved through the study';
+    case 'propose_measurement':
+      return 'Proposed a measurement on the prior';
+    case 'draft_report':
+      return 'Drafted the report from cited measurements';
+    case 'request_signature':
+      return 'Sent the report for signature review';
+    default:
+      return 'Updated the viewer';
+  }
+}
+
+function groupBursts(events: ToolCallEvent[]): ToolCallEvent[][] {
+  const groups: ToolCallEvent[][] = [];
+  for (const event of events) {
+    const group = groups[groups.length - 1];
+    if (!group || Math.abs(group[group.length - 1].startedAt - event.startedAt) > BURST_GAP_MS) {
+      groups.push([event]);
+    } else {
+      group.push(event);
+    }
+  }
+  return groups;
+}
+
+function summarizeBurst(events: ToolCallEvent[]): string {
+  const seen = new Set<string>();
+  const phrases: string[] = [];
+  for (const event of events) {
+    const key = `${event.tool}:${event.argsSummary}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    phrases.push(finishedPhrase(event));
+  }
+  return phrases.join('. ');
 }
 
 export function AgentIsland({
   services,
 }: {
-  services: Record<string, unknown>
-}): React.ReactElement | null {
-  const [, tick] = useState(0)
-  const [open, setOpen] = useState(false)
+  services: Record<string, unknown>;
+}): React.ReactElement {
+  const [, tick] = useState(0);
+  const [open, setOpen] = useState(false);
+  const [instructionsText, setInstructionsText] = useState(() =>
+    autonomy.getStandingInstructions().join('\n')
+  );
+  const [toolAudit, setToolAudit] = useState<WebMcpTool[]>([]);
+  const [commandsOpen, setCommandsOpen] = useState(false);
+  const registration = presence.getRegistration();
 
   useEffect(() => {
-    const off = presence.subscribe(() => tick((value) => value + 1))
-    const offProposals = subscribeProposals(() => tick((value) => value + 1))
-    const timer = setInterval(() => tick((value) => value + 1), 1000)
+    const off = presence.subscribe(() => tick(value => value + 1));
+    const offAutonomy = autonomy.subscribe(() => tick(value => value + 1));
+    const offProposals = subscribeProposals(() => tick(value => value + 1));
+    const offReport = subscribeReport(() => tick(value => value + 1));
+    const timer = window.setInterval(() => tick(value => value + 1), 1000);
     return () => {
-      off()
-      offProposals()
-      clearInterval(timer)
-    }
-  }, [])
+      off();
+      offAutonomy();
+      offProposals();
+      offReport();
+      window.clearInterval(timer);
+    };
+  }, []);
 
-  const pending = getProposals().filter((entry) => entry.state === 'proposed')
+  useEffect(() => {
+    if (!open) return;
+    let current = true;
+    void liveTools().then(tools => {
+      if (current) setToolAudit(tools);
+    });
+    return () => {
+      current = false;
+    };
+  }, [open, registration]);
 
-  /** Repaint after a decision, so the mark changes the instant it is made. */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
+        event.preventDefault();
+        setOpen(true);
+        setCommandsOpen(value => !value);
+      }
+      if (event.key === 'Escape') setCommandsOpen(false);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const pending = getProposals().filter(entry => entry.state === 'proposed');
+  const confirmations = autonomy.getPending();
+  const replyCount = openReplies().length;
+  const signatureWaiting = pendingRequest()?.status === 'pending';
+  const last = presence.getLast();
+  const writes = presence
+    .getEvents()
+    .filter(isWriteEvent)
+    .filter(event => !event.running);
+  const bursts = useMemo(() => groupBursts(writes), [writes]);
+  const latestPlan = useMemo(
+    () => groupBursts(presence.getEvents().filter(isWriteEvent))[0] ?? [],
+    [last]
+  );
+  const lastWrite = presence.getLastWrite();
+  const failure = registration.ok ? null : registration.failure;
+  const supported = failure === null || failure.kind !== 'unsupported';
+  const waitingCount =
+    pending.length + confirmations.length + replyCount + (signatureWaiting ? 1 : 0);
+  const session = presence.getSessionState(waitingCount > 0);
+  const topConfirmation = confirmations[0];
+  const topProposal = pending[0];
+  const runningPlan = latestPlan.filter(event => event.running);
+
+  let state = 'No agent in this browser';
+  if (failure) {
+    state = failure.kind === 'unsupported' ? 'No agent in this browser' : failure.message;
+  } else if (session === 'error') {
+    state = `${sessionLabel(session)} · ${last?.resultSummary || 'the last change did not go through'}`;
+  } else if (session === 'working' && last) {
+    state = `${sessionLabel(session)} · ${IN_FLIGHT.get(last.tool) ?? 'updating the viewer'}`;
+  } else if (session === 'waiting-for-you') {
+    state = `${sessionLabel(session)} · ${waitingCount} ${waitingCount === 1 ? 'decision' : 'decisions'}`;
+  } else if (session === 'done') {
+    state = sessionLabel(session);
+  } else if (lastWrite) {
+    state = `${sessionLabel(session)} · last action ${relative(Date.now() - lastWrite.startedAt)}`;
+  } else if (supported) {
+    state = `${sessionLabel(session)} · no actions yet`;
+  }
+
+  const railVerb = failure
+    ? failure.kind === 'unsupported'
+      ? 'No agent'
+      : 'Blocked'
+    : session === 'waiting-for-you'
+      ? `${waitingCount} ${waitingCount === 1 ? 'decision' : 'decisions'}`
+      : session === 'error'
+        ? 'Failed'
+        : 'Ready';
+  const railObject = topConfirmation
+    ? `${CONFIRMATION_LABEL.get(topConfirmation.tool) ?? 'Change the viewer'}${
+        topConfirmation.summary ? ` · ${topConfirmation.summary}` : ''
+      }`
+    : topProposal
+      ? 'Suggested measurement'
+      : signatureWaiting
+        ? 'Report ready for signature'
+        : replyCount > 0
+          ? 'Report reply waiting'
+          : session === 'working' && last
+            ? (IN_FLIGHT.get(last.tool) ?? 'updating the viewer')
+            : lastWrite
+              ? `Last action ${relative(Date.now() - lastWrite.startedAt)}`
+              : failure?.kind === 'unsupported'
+                ? 'in this browser'
+                : 'for this study';
+
   const repaint = () => {
     const viewportService = services.cornerstoneViewportService as
       | { getRenderingEngine?: () => { render?: () => void } | undefined }
-      | undefined
-    viewportService?.getRenderingEngine?.()?.render?.()
-  }
+      | undefined;
+    viewportService?.getRenderingEngine?.()?.render?.();
+  };
+
+  const confirmProposal = (annotationUID: string) => {
+    const proposal = getProposal(annotationUID);
+    const tracking = services.trackedMeasurementsService as
+      | { addTrackedSeries?: (seriesInstanceUID: string) => void }
+      | undefined;
+    if (proposal) tracking?.addTrackedSeries?.(proposal.targetSeriesUID);
+    accept(annotationUID);
+    repaint();
+  };
 
   const show = (annotationUID: string) => {
     const grid = services.viewportGridService as
       | { getState?: () => { activeViewportId: string } }
-      | undefined
+      | undefined;
     const measurementService = services.measurementService as
       | { jumpToMeasurement?: (viewportId: string, uid: string) => void }
-      | undefined
-    const viewportId = grid?.getState?.().activeViewportId
-    if (viewportId) measurementService?.jumpToMeasurement?.(viewportId, annotationUID)
-  }
+      | undefined;
+    const viewportId = grid?.getState?.().activeViewportId;
+    if (viewportId) measurementService?.jumpToMeasurement?.(viewportId, annotationUID);
+  };
 
-  const registration = presence.getRegistration()
-  const last: ToolCallEvent | null = presence.getLast()
-  const events = presence.getEvents()
+  const nextSentence = currentVersion()?.sentences.find(
+    sentence => (sentence.review ?? 'unreviewed') === 'unreviewed'
+  );
+  const commands = [
+    {
+      label: 'Accept next suggested measurement',
+      disabled: pending.length === 0,
+      run: () => {
+        const proposal = pending[0];
+        if (proposal) {
+          confirmProposal(proposal.annotationUID);
+        }
+      },
+    },
+    {
+      label: 'Adjust next suggested measurement',
+      disabled: pending.length === 0,
+      run: () => pending[0] && show(pending[0].annotationUID),
+    },
+    {
+      label: 'Accept next report sentence',
+      disabled: !nextSentence,
+      run: () => nextSentence && void setSentenceReview(nextSentence.sentenceId, 'accepted'),
+    },
+    {
+      label: 'Reply to next report sentence',
+      disabled: !nextSentence,
+      run: () => {
+        if (!nextSentence) return;
+        window.dispatchEvent(
+          new CustomEvent('substrate:reply', { detail: { sentenceId: nextSentence.sentenceId } })
+        );
+      },
+    },
+    {
+      label: 'Jump to next cited measurement',
+      disabled: !nextSentence?.provenance[0],
+      run: () => nextSentence?.provenance[0] && show(nextSentence.provenance[0].measurementId),
+    },
+    {
+      label: 'Review and sign report',
+      disabled: !currentVersion(),
+      run: () => requestSignature('Review the current report and its cited measurements.'),
+    },
+  ];
 
-  const failure = registration.ok ? null : registration.failure
-  const supported = failure === null || failure.kind !== 'unsupported'
-  const working = last !== null && Date.now() - last.startedAt < WORKING_WINDOW_MS
-
-  let dot = 'rgba(255,255,255,0.35)'
-  let line: React.ReactNode = 'No agent in this browser'
-
-  if (failure) {
-    // A browser with no WebMCP is the ordinary case and not an error. Anything
-    // else is something the person can actually fix, so it says what it was.
-    dot = failure.kind === 'unsupported' ? 'rgba(255,255,255,0.35)' : '#f87171'
-    line = failure.kind === 'unsupported' ? 'No agent in this browser' : failure.message
-  } else if (last && !last.ok) {
-    dot = '#f87171'
-    // The phrases are gerunds ("hanging the study"), so a failure reads as
-    // "hanging the study — did not go through" rather than the ungrammatical
-    // "Could not hanging the study".
-    line = `${PHRASE.get(last.tool) ?? last.tool} — did not go through`
-  } else if (working && last) {
-    dot = '#38bdf8'
-    line = `Agent is ${PHRASE.get(last.tool) ?? last.tool}`
-  } else if (last) {
-    dot = '#4ade80'
-    line = `Agent · ${PHRASE.get(last.tool) ?? last.tool} ${relative(Date.now() - last.startedAt)}`
-  } else if (supported) {
-    dot = '#4ade80'
-    line = `Agent connected · ${registration.registered.length} tools`
-  }
-
-  const glass: React.CSSProperties = {
-    background: 'rgba(14, 20, 33, 0.55)',
-    backdropFilter: 'blur(20px) saturate(180%)',
-    WebkitBackdropFilter: 'blur(20px) saturate(180%)',
-    border: '1px solid rgba(255, 255, 255, 0.12)',
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.06)',
-    color: 'rgba(255, 255, 255, 0.92)',
-  }
+  const surface: React.CSSProperties = {
+    background: token['surface/panel'],
+    border: `1px solid ${token['border/hairline']}`,
+    color: '#d0d6e0',
+    fontSize: token['text/ui'],
+    fontFamily:
+      'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+    fontFeatureSettings: '"cv01" 1, "ss03" 1, "zero" 1',
+  };
 
   return (
-    <>
-      {/* Bottom-left: always on screen, and clear of OHIF's toolbar and of the
-          viewport corners where Cornerstone draws its own overlays. */}
-      <div
-        style={{
-          position: 'fixed',
-          left: 'max(12px, env(safe-area-inset-left))',
-          bottom: 'max(20px, env(safe-area-inset-bottom))',
-          zIndex: 1050,
-          pointerEvents: 'none',
-          maxWidth: 220,
-        }}
-      >
-        <span
-          style={{
-            ...glass,
-            display: 'inline-block',
-            borderRadius: 10,
-            padding: '5px 10px',
-            fontSize: 10.5,
-            lineHeight: 1.4,
-            opacity: 0.75,
-          }}
-        >
-          Research use only. Not for clinical diagnosis. Public de-identified imaging.
-        </span>
-      </div>
-
     <div
       style={{
         position: 'fixed',
         insetInline: 0,
-        bottom: 'max(20px, env(safe-area-inset-bottom))',
+        bottom: 0,
+        zIndex: 1000,
         display: 'flex',
         justifyContent: 'center',
         pointerEvents: 'none',
-        zIndex: 1000,
       }}
     >
-      <div
+      <section
+        aria-label="Agent activity"
         style={{
-          ...glass,
-          pointerEvents: 'auto',
-          borderRadius: open || pending.length > 0 ? 18 : 999,
-          maxWidth: 'min(560px, calc(100vw - 32px))',
+          ...surface,
+          width: '100%',
+          borderRadius: 0,
           overflow: 'hidden',
-          transition: 'border-radius 160ms ease-out',
+          pointerEvents: 'auto',
+          boxShadow: '0 -6px 20px rgba(0,0,0,.28)',
         }}
       >
-        <button
-          type="button"
-          onClick={() => setOpen((value) => !value)}
-          aria-expanded={open}
-          aria-label="What the agent has done"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 8,
-            width: '100%',
-            padding: '9px 14px',
-            background: 'transparent',
-            border: 'none',
-            color: 'inherit',
-            font: 'inherit',
-            fontSize: 12.5,
-            cursor: 'pointer',
-            textAlign: 'left',
-          }}
-        >
-          <span
-            aria-hidden
-            style={{
-              width: 7,
-              height: 7,
-              flexShrink: 0,
-              borderRadius: 999,
-              background: dot,
-              boxShadow: working ? `0 0 8px ${dot}` : 'none',
-            }}
-          />
-          <span
-            style={{
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis',
-            }}
-          >
-            {line}
-          </span>
-          {events.length > 0 ? (
-            <span style={{ marginLeft: 'auto', opacity: 0.5, fontSize: 11 }}>
-              {open ? 'Hide' : `${events.length}`}
-            </span>
-          ) : null}
-        </button>
-
-        {pending.length > 0 ? (
+        <style>{`
+          .substrate-rail-button { min-height: 40px; padding: 0 10px; border: 0; border-radius: 6px; background: transparent; color: ${token['ink/low']}; font: inherit; font-size: 11.5px; cursor: pointer; transition: background-color 100ms ease, color 100ms ease, transform 100ms ease; }
+          .substrate-rail-button:hover { background: ${token['surface/room']}; color: ${token['ink/high']}; }
+          .substrate-rail-button:active { transform: scale(.96); }
+          .substrate-rail-button:focus-visible { outline: none; box-shadow: 0 0 0 1px ${token['surface/panel']}, 0 0 0 3px ${token['action/primary']}; }
+          .substrate-rail-button--primary { background: ${token['action/primary']}; color: ${token['on/primary']}; }
+          .substrate-rail-button--primary:hover { background: ${token['action/primary-hover']}; color: ${token['on/primary']}; }
+          .substrate-rail-button--primary:active { background: ${token['action/primary-press']}; }
+          @media (prefers-reduced-motion: reduce) { .substrate-rail-button { transition: none; } }
+        `}</style>
+        {open ? (
           <div
             style={{
-              borderTop: '1px solid rgba(255,255,255,0.08)',
-              padding: '8px 10px 10px',
+              maxHeight: 'min(46vh, 390px)',
+              overflowY: 'auto',
+              borderBottom: `1px solid ${token['border/hairline']}`,
             }}
           >
-            <p style={{ margin: '0 0 6px', fontSize: 11.5, opacity: 0.6 }}>
-              {pending.length === 1
-                ? 'The agent copied a measurement onto another timepoint. It is not part of any report until you accept it.'
-                : `The agent copied ${pending.length} measurements onto another timepoint. None of them count until you accept them.`}
-            </p>
-            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-              {pending.map((proposal) => (
-                <li
-                  key={proposal.annotationUID}
+            {commandsOpen ? (
+              <section
+                aria-label="Substrate commands"
+                style={{
+                  padding: '10px 14px',
+                  borderBottom: `1px solid ${token['border/hairline']}`,
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <h2 style={{ margin: 0, color: '#e5e5e6', fontSize: 12, fontWeight: 510 }}>
+                    Commands
+                  </h2>
+                  <span style={{ color: '#62666d', fontSize: 10.5 }}>⌘K</span>
+                </div>
+                <div style={{ display: 'grid', marginTop: 6 }}>
+                  {commands.map(command => (
+                    <button
+                      key={command.label}
+                      type="button"
+                      disabled={command.disabled}
+                      onClick={() => {
+                        command.run();
+                        setCommandsOpen(false);
+                      }}
+                      style={{
+                        padding: '5px 0',
+                        color: command.disabled ? '#45484e' : '#d0d6e0',
+                        background: 'transparent',
+                        border: 0,
+                        font: 'inherit',
+                        fontSize: 11.5,
+                        textAlign: 'left',
+                        cursor: command.disabled ? 'default' : 'pointer',
+                      }}
+                    >
+                      {command.label}
+                    </button>
+                  ))}
+                </div>
+              </section>
+            ) : null}
+
+            <details
+              aria-label="Autonomy"
+              style={{
+                borderBottom: `1px solid ${token['border/hairline']}`,
+              }}
+            >
+              <summary
+                style={{
+                  minHeight: 40,
+                  padding: '0 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: token['ink/low'],
+                  cursor: 'pointer',
+                  fontSize: 11.5,
+                }}
+              >
+                Workflow · {autonomyLabel(autonomy.getLevel())}
+              </summary>
+              <div style={{ display: 'grid', gap: 12, padding: '0 14px 12px' }}>
+                <div
                   style={{
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 8,
-                    padding: '5px 0',
-                    fontSize: 12,
+                    justifyContent: 'space-between',
+                    gap: 12,
                   }}
                 >
-                  <span
-                    aria-hidden
+                  <div
+                    role="group"
+                    aria-label="Autonomy level"
                     style={{
-                      width: 7,
-                      height: 7,
-                      flexShrink: 0,
-                      borderRadius: 999,
-                      background: 'rgb(251, 191, 36)',
-                    }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => show(proposal.annotationUID)}
-                    style={{
-                      flex: 1,
-                      minWidth: 0,
-                      textAlign: 'left',
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'inherit',
-                      font: 'inherit',
-                      fontSize: 12,
-                      cursor: 'pointer',
-                      padding: 0,
-                    }}
-                    title="Show me where this is"
-                  >
-                    {proposal.aligned
-                      ? 'Copied to the matching slice'
-                      : `Nearest slice, ${proposal.offsetMm}mm off — worth checking`}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      accept(proposal.annotationUID)
-                      repaint()
-                    }}
-                    style={{
-                      background: 'rgba(255,255,255,0.12)',
-                      border: '1px solid rgba(255,255,255,0.18)',
-                      borderRadius: 999,
-                      color: 'inherit',
-                      font: 'inherit',
-                      fontSize: 11.5,
-                      padding: '3px 10px',
-                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      padding: 2,
+                      background: token['surface/room'],
+                      border: `1px solid ${token['border/hairline']}`,
+                      borderRadius: 6,
                     }}
                   >
-                    Accept
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      reject(proposal.annotationUID)
-                      repaint()
-                    }}
-                    style={{
-                      background: 'transparent',
-                      border: 'none',
-                      color: 'rgba(255,255,255,0.5)',
-                      font: 'inherit',
-                      fontSize: 11.5,
-                      padding: '3px 4px',
-                      cursor: 'pointer',
-                    }}
+                    {AUTONOMY_LEVELS.map(level => {
+                      const selected = autonomy.getLevel() === level;
+                      return (
+                        <button
+                          key={level}
+                          type="button"
+                          aria-pressed={selected}
+                          onClick={() => autonomy.setLevel(level)}
+                          style={{
+                            padding: '4px 7px',
+                            color: selected ? '#e5e5e6' : '#62666d',
+                            background: selected ? '#23252a' : 'transparent',
+                            border: 0,
+                            borderRadius: 4,
+                            font: 'inherit',
+                            fontSize: 10.5,
+                            cursor: 'pointer',
+                          }}
+                        >
+                          {autonomyLabel(level)}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <span style={{ color: '#62666d', fontSize: 10.5, textAlign: 'right' }}>
+                    Workflow only · you confirm findings and sign
+                  </span>
+                </div>
+                <textarea
+                  aria-label="Standing instructions"
+                  rows={1}
+                  value={instructionsText}
+                  onChange={event => setInstructionsText(event.target.value)}
+                  onBlur={() => autonomy.setStandingInstructions(instructionsText.split('\n'))}
+                  placeholder="Standing instructions…"
+                  style={{
+                    boxSizing: 'border-box',
+                    width: '100%',
+                    minHeight: 30,
+                    padding: '6px 8px',
+                    resize: 'vertical',
+                    color: '#d0d6e0',
+                    background: token['surface/room'],
+                    border: `1px solid ${token['border/hairline']}`,
+                    borderRadius: 5,
+                    outline: 0,
+                    font: 'inherit',
+                    fontSize: 11,
+                    lineHeight: 1.45,
+                  }}
+                />
+              </div>
+            </details>
+
+            {confirmations.length > 1 ? (
+              <section style={{ padding: '12px 14px' }}>
+                <h2 style={{ margin: 0, color: '#e5e5e6', fontSize: 12, fontWeight: 510 }}>
+                  Waiting for you
+                </h2>
+                <ul style={{ listStyle: 'none', margin: '8px 0 0', padding: 0 }}>
+                  {confirmations.slice(1).map(request => (
+                    <li
+                      key={request.id}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(0,1fr) auto auto',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '8px 0',
+                        borderTop: `1px solid ${token['border/hairline']}`,
+                      }}
+                    >
+                      <span
+                        style={{
+                          minWidth: 0,
+                          overflow: 'hidden',
+                          color: '#d0d6e0',
+                          fontSize: 11.5,
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {CONFIRMATION_LABEL.get(request.tool) ?? 'Change the viewer'}
+                        {request.summary ? ` · ${request.summary}` : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => autonomy.decide(request.id, 'skip')}
+                        style={{
+                          padding: '5px 8px',
+                          color: '#8a8f98',
+                          background: 'transparent',
+                          border: `1px solid ${token['border/hairline']}`,
+                          borderRadius: 6,
+                          font: 'inherit',
+                          fontSize: 11,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Skip
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => autonomy.decide(request.id, 'apply')}
+                        style={{
+                          padding: '5px 9px',
+                          color: '#08090a',
+                          background: token['state/confirmed'],
+                          border: 0,
+                          borderRadius: 6,
+                          font: 'inherit',
+                          fontSize: 11,
+                          fontWeight: 510,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Apply
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
+            {runningPlan.length > 0 ? (
+              <section style={{ padding: '12px 14px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <span style={{ color: token['agent/accent'], display: 'flex' }}>
+                    <AgentMark size={11} />
+                  </span>
+                  <h2 style={{ margin: 0, color: '#e5e5e6', fontSize: 12, fontWeight: 510 }}>
+                    Plan
+                  </h2>
+                </div>
+                <ol style={{ listStyle: 'none', margin: '7px 0 0', padding: 0 }}>
+                  {runningPlan
+                    .filter(
+                      (event, index, events) =>
+                        events.findIndex(
+                          candidate =>
+                            candidate.tool === event.tool &&
+                            candidate.argsSummary === event.argsSummary
+                        ) === index
+                    )
+                    .reverse()
+                    .map(event => (
+                      <li
+                        key={event.callId}
+                        style={{ display: 'flex', gap: 7, color: '#8a8f98', fontSize: 11.5 }}
+                      >
+                        <span aria-hidden>{event.running ? '○' : event.ok ? '✓' : '—'}</span>
+                        <span>
+                          {event.running
+                            ? (IN_FLIGHT.get(event.tool) ?? 'updating the viewer')
+                            : finishedPhrase(event)}
+                        </span>
+                      </li>
+                    ))}
+                </ol>
+              </section>
+            ) : null}
+
+            {pending.length > 1 ? (
+              <section style={{ padding: '12px 14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
+                  <div>
+                    <h2 style={{ margin: 0, color: '#e5e5e6', fontSize: 12, fontWeight: 510 }}>
+                      Suggested measurements
+                    </h2>
+                    <p
+                      style={{
+                        margin: '4px 0 0',
+                        color: '#8a8f98',
+                        fontSize: 11,
+                        lineHeight: 1.45,
+                      }}
+                    >
+                      Nothing enters the report until you accept it.
+                    </p>
+                  </div>
+                  <span style={{ color: token['ink/low'], fontSize: 11 }}>
+                    {pending.length - 1}
+                  </span>
+                </div>
+                <ul style={{ listStyle: 'none', margin: '10px 0 0', padding: 0 }}>
+                  {pending.slice(1).map(proposal => (
+                    <li
+                      key={proposal.annotationUID}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'minmax(0,1fr) auto auto',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '8px 0',
+                        borderTop: `1px solid ${token['border/hairline']}`,
+                      }}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => show(proposal.annotationUID)}
+                        style={{
+                          minWidth: 0,
+                          padding: 0,
+                          overflow: 'hidden',
+                          color: proposal.aligned
+                            ? token['state/proposed']
+                            : token['state/unaligned'],
+                          background: 'transparent',
+                          border: 0,
+                          font: 'inherit',
+                          fontSize: 11.5,
+                          textAlign: 'left',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        {proposal.aligned
+                          ? 'Matching slice'
+                          : `Nearest slice · ${proposal.offsetMm} mm offset`}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => show(proposal.annotationUID)}
+                        style={{
+                          padding: '5px 8px',
+                          color: '#8a8f98',
+                          background: 'transparent',
+                          border: `1px solid ${token['border/hairline']}`,
+                          borderRadius: 6,
+                          font: 'inherit',
+                          fontSize: 11,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Adjust
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          confirmProposal(proposal.annotationUID);
+                        }}
+                        style={{
+                          padding: '5px 9px',
+                          color: '#08090a',
+                          background: '#e4f222',
+                          border: 0,
+                          borderRadius: 6,
+                          font: 'inherit',
+                          fontSize: 11,
+                          fontWeight: 510,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Accept
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          reject(proposal.annotationUID);
+                          repaint();
+                        }}
+                        style={{
+                          gridColumn: '1 / -1',
+                          justifySelf: 'start',
+                          padding: 0,
+                          color: '#62666d',
+                          background: 'transparent',
+                          border: 0,
+                          font: 'inherit',
+                          fontSize: 10.5,
+                          cursor: 'pointer',
+                        }}
+                      >
+                        Discard suggestion
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            ) : null}
+
+            <ReviewThread services={services} />
+
+            {bursts.length > 0 ? (
+              <section style={{ padding: '12px 14px' }}>
+                <h2 style={{ margin: 0, color: '#e5e5e6', fontSize: 12, fontWeight: 510 }}>
+                  Recent work
+                </h2>
+                <ol style={{ listStyle: 'none', margin: '8px 0 0', padding: 0 }}>
+                  {bursts.slice(0, 3).map(burst => {
+                    const newest = burst[0];
+                    const undo = burst.find(event => event.undo)?.undo;
+                    return (
+                      <li
+                        key={newest.callId}
+                        title={new Date(newest.startedAt).toLocaleString()}
+                        style={{
+                          display: 'flex',
+                          alignItems: 'flex-start',
+                          gap: 10,
+                          padding: '9px 0',
+                          borderTop: `1px solid ${token['border/hairline']}`,
+                        }}
+                      >
+                        <p
+                          style={{
+                            flex: 1,
+                            margin: 0,
+                            color: newest.ok ? '#d0d6e0' : '#eb8a8a',
+                            fontSize: 11.5,
+                            lineHeight: 1.45,
+                          }}
+                        >
+                          {summarizeBurst(burst)}
+                        </p>
+                        {undo ? (
+                          <button
+                            type="button"
+                            onClick={undo}
+                            style={{
+                              padding: 0,
+                              color: '#8a8f98',
+                              background: 'transparent',
+                              border: 0,
+                              font: 'inherit',
+                              fontSize: 10.5,
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Undo
+                          </button>
+                        ) : null}
+                        <time
+                          style={{
+                            color: '#62666d',
+                            font: token['text/measure'],
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {relative(Date.now() - newest.startedAt)}
+                        </time>
+                      </li>
+                    );
+                  })}
+                </ol>
+              </section>
+            ) : null}
+            <details style={{ borderTop: `1px solid ${token['border/hairline']}` }}>
+              <summary
+                style={{
+                  minHeight: 40,
+                  padding: '0 14px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  color: token['ink/low'],
+                  cursor: 'pointer',
+                  fontSize: 11.5,
+                }}
+              >
+                Timing
+              </summary>
+              <TimingComparison />
+            </details>
+            <details
+              style={{
+                padding: '8px 14px',
+                borderTop: `1px solid ${token['border/hairline']}`,
+                color: '#62666d',
+                fontSize: 10.5,
+              }}
+            >
+              <summary style={{ cursor: 'pointer' }}>
+                Tool self-test · {toolAudit.length}/
+                {registration.ok ? registration.registered.length : 10}
+              </summary>
+              <p style={{ margin: '6px 0 0' }}>A connected agent can see this page.</p>
+              <ul style={{ listStyle: 'none', margin: '7px 0 0', padding: 0 }}>
+                {toolAudit.map(tool => (
+                  <li
+                    key={tool.name}
+                    style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}
                   >
-                    Discard
-                  </button>
-                </li>
-              ))}
-            </ul>
+                    <span>{tool.title}</span>
+                    <span>
+                      {tool.annotations?.readOnlyHint ? 'Read' : 'Write'}
+                      {tool.annotations?.untrustedContentHint ? ' · untrusted' : ''}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </details>
           </div>
         ) : null}
 
-        {open && events.length > 0 ? (
-          <ul
+        <div
+          role="status"
+          aria-live="polite"
+          aria-label={`Agent activity: ${state}`}
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'auto auto minmax(0, 1fr) auto',
+            alignItems: 'center',
+            gap: 10,
+            width: '100%',
+            minHeight: 48,
+            padding: '4px 8px',
+            color: 'inherit',
+            background: 'transparent',
+          }}
+        >
+          <span
             style={{
-              listStyle: 'none',
-              margin: 0,
-              padding: '2px 6px 8px',
-              maxHeight: 240,
-              overflowY: 'auto',
-              borderTop: '1px solid rgba(255,255,255,0.08)',
+              minWidth: 62,
+              padding: '3px 8px',
+              borderRadius: 999,
+              color: session === 'error' ? token['review/rejected'] : token['ink/low'],
+              background: token['surface/room'],
+              fontSize: 10.5,
+              fontWeight: 600,
+              letterSpacing: '.06em',
+              textAlign: 'center',
+              textTransform: 'uppercase',
             }}
           >
-            {events.map((event, index) => (
-              <li
-                key={`${event.tool}-${event.startedAt}-${index}`}
-                style={{
-                  display: 'flex',
-                  gap: 8,
-                  padding: '6px 8px',
-                  fontSize: 12,
-                  opacity: event.ok ? 0.85 : 1,
-                  color: event.ok ? undefined : '#fca5a5',
-                }}
+            {session === 'working' ? (
+              <ThinkingIndicator
+                size="compact"
+                showIcon
+              />
+            ) : (
+              sessionLabel(session)
+            )}
+          </span>
+          <strong style={{ color: token['ink/high'], fontSize: 12, fontWeight: 510 }}>
+            {railVerb}
+          </strong>
+          <span
+            style={{
+              minWidth: 0,
+              overflow: 'hidden',
+              color: token['ink/low'],
+              fontSize: 11.5,
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {railObject}
+          </span>
+          <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+            {session === 'working' && last?.stop ? (
+              <button
+                className="substrate-rail-button"
+                type="button"
+                onClick={last.stop}
               >
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  {PHRASE.get(event.tool) ?? event.tool}
-                  {event.argsSummary ? (
-                    <span style={{ opacity: 0.5 }}> — {event.argsSummary}</span>
-                  ) : null}
-                </span>
-                <span style={{ opacity: 0.45, whiteSpace: 'nowrap' }}>
-                  {relative(Date.now() - event.startedAt)}
-                </span>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
+                Stop
+              </button>
+            ) : topConfirmation ? (
+              <>
+                <button
+                  className="substrate-rail-button"
+                  type="button"
+                  onClick={() => autonomy.decide(topConfirmation.id, 'skip')}
+                >
+                  Skip
+                </button>
+                <button
+                  className="substrate-rail-button substrate-rail-button--primary"
+                  type="button"
+                  onClick={() => autonomy.decide(topConfirmation.id, 'apply')}
+                >
+                  Apply
+                </button>
+              </>
+            ) : topProposal ? (
+              <>
+                <button
+                  className="substrate-rail-button"
+                  type="button"
+                  onClick={() => {
+                    show(topProposal.annotationUID);
+                    setOpen(true);
+                  }}
+                >
+                  Adjust
+                </button>
+                <button
+                  className="substrate-rail-button substrate-rail-button--primary"
+                  type="button"
+                  onClick={() => confirmProposal(topProposal.annotationUID)}
+                >
+                  Accept
+                </button>
+              </>
+            ) : null}
+            <button
+              className="substrate-rail-button"
+              type="button"
+              aria-expanded={open}
+              onClick={() => setOpen(value => !value)}
+            >
+              {open
+                ? 'Close'
+                : bursts.length > 0
+                  ? `${bursts.length} ${bursts.length === 1 ? 'step' : 'steps'}`
+                  : 'History'}
+            </button>
+            <abbr
+              title="Research use only. Not for diagnostic use."
+              style={{
+                color: token['ink/dim'],
+                font: token['text/measure'],
+                textDecoration: 'none',
+              }}
+            >
+              RUO
+            </abbr>
+          </span>
+        </div>
+      </section>
     </div>
-    </>
-  )
+  );
 }

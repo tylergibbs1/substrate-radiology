@@ -1,3 +1,5 @@
+import type { ReviewState } from '../designTokens'
+
 /**
  * The report, and the signature bound to it.
  *
@@ -35,6 +37,7 @@ export type Sentence = {
   provenance: Provenance[]
   replacesSentenceId?: string
   replies: Reply[]
+  review?: ReviewState
 }
 
 export type ReportVersion = {
@@ -81,7 +84,7 @@ export function normalizeText(text: string): string {
     .normalize('NFC')
     .replace(/\r\n?/g, '\n')
     .split('\n')
-    .map((line) => line.replace(/[ \t]+/g, ' ').trimEnd())
+    .map(line => line.replace(/[ \t]+/g, ' ').trimEnd())
     .join('\n')
     .trim()
 }
@@ -90,18 +93,20 @@ export function normalizeText(text: string): string {
 export function packetFor(version: ReportVersion): unknown {
   return {
     template: version.template,
-    sentences: version.sentences.map((sentence) => ({
-      section: sentence.section,
-      text: normalizeText(sentence.text),
-      cites: sentence.provenance.map((entry) => entry.measurementId).sort(),
-    })),
+    sentences: version.sentences
+      .filter(sentence => sentence.review !== 'rejected')
+      .map(sentence => ({
+        section: sentence.section,
+        text: normalizeText(sentence.text),
+        cites: sentence.provenance.map(entry => entry.measurementId).sort(),
+      })),
   }
 }
 
 export async function hashReport(version: ReportVersion): Promise<string> {
   const bytes = new TextEncoder().encode(canonicalize(packetFor(version)))
   const digest = await crypto.subtle.digest('SHA-256', bytes)
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('')
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
 }
 
 /* --------------------------------------------------------------- the store */
@@ -133,6 +138,45 @@ export function allVersions(): ReportVersion[] {
 
 export function signature(): Signature | null {
   return state.signature
+}
+
+export type OpenReply = Reply & { sentenceId: string; sentenceText: string }
+
+export function openReplies(): OpenReply[] {
+  const version = currentVersion()
+  if (!version) return []
+  return version.sentences.flatMap(sentence =>
+    sentence.replies
+      .filter(reply => !reply.answeredByPointId)
+      .map(reply => ({ ...reply, sentenceId: sentence.sentenceId, sentenceText: sentence.text }))
+  )
+}
+
+export function addReply(
+  sentenceId: string,
+  text: string,
+  kind: Reply['kind'] = 'question'
+): Reply | null {
+  const version = currentVersion()
+  const clean = normalizeText(text)
+  if (!version || !clean) return null
+  const index = version.sentences.findIndex(sentence => sentence.sentenceId === sentenceId)
+  if (index < 0) return null
+  const reply: Reply = {
+    replyId: `reply-${Date.now()}`,
+    author: { type: 'human', label: 'you' },
+    text: clean,
+    kind,
+    ts: Date.now(),
+  }
+  const sentences = [...version.sentences]
+  sentences[index] = {
+    ...sentences[index],
+    replies: [...sentences[index].replies, reply],
+  }
+  state.versions[state.versions.length - 1] = { ...version, sentences }
+  announce()
+  return reply
 }
 
 /**
@@ -167,7 +211,53 @@ export async function addVersion(
   return version
 }
 
-export function sign(signer: string, attestation: string, acceptedUnsupported: string[]): Signature | null {
+export async function setSentenceReview(
+  sentenceId: string,
+  review: Exclude<ReviewState, 'stale'>
+): Promise<ReportVersion | null> {
+  const version = currentVersion()
+  if (!version) return null
+  const index = version.sentences.findIndex(sentence => sentence.sentenceId === sentenceId)
+  if (index < 0) return null
+  const sentences = version.sentences.map((sentence, sentenceIndex) =>
+    sentenceIndex === index ? { ...sentence, review } : sentence
+  )
+  return addVersion(
+    version.template,
+    sentences,
+    { type: 'human', label: 'you' },
+    version.noteToSigner
+  )
+}
+
+export async function restoreVersion(versionNumber: number): Promise<ReportVersion | null> {
+  const source = state.versions.find(version => version.version === versionNumber)
+  if (!source) return null
+  const sentences = source.sentences.map(sentence => ({
+    ...sentence,
+    provenance: sentence.provenance.map(entry => ({ ...entry })),
+    replies: sentence.replies.map(reply => ({ ...reply })),
+  }))
+  return addVersion(
+    source.template,
+    sentences,
+    { type: 'human', label: 'you' },
+    source.noteToSigner
+  )
+}
+
+export async function changeTemplate(template: string): Promise<ReportVersion | null> {
+  const version = currentVersion()
+  const clean = normalizeText(template)
+  if (!version || !clean || clean === version.template) return version
+  return addVersion(clean, version.sentences, { type: 'human', label: 'you' }, version.noteToSigner)
+}
+
+export function sign(
+  signer: string,
+  attestation: string,
+  acceptedUnsupported: string[]
+): Signature | null {
   const version = currentVersion()
   if (!version) return null
   state.signature = {

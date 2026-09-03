@@ -43,7 +43,7 @@ export type WebMcpTool = {
 
 export type ModelContext = EventTarget & {
   registerTool: (tool: WebMcpTool, options?: { signal?: AbortSignal }) => Promise<void>
-  getTools?: () => WebMcpTool[]
+  getTools?: () => WebMcpTool[] | Promise<WebMcpTool[]>
 }
 
 type ModelContextHost = {
@@ -139,13 +139,13 @@ export async function register(
 }
 
 /** What the tools panel reads back, so a person can see the live surface. */
-export function liveTools(): WebMcpTool[] {
+export function liveTools(): Promise<WebMcpTool[]> {
   const context = getModelContext()
-  if (!context?.getTools) return []
+  if (!context?.getTools) return Promise.resolve([])
   try {
-    return context.getTools()
+    return Promise.resolve(context.getTools()).catch(() => [])
   } catch {
-    return []
+    return Promise.resolve([])
   }
 }
 

@@ -1,4 +1,5 @@
 import type { RegistrationResult } from './spec'
+import type { SessionState } from '../designTokens'
 
 /**
  * What the agent has been doing, so the panel and the radiologist can see it.
@@ -11,20 +12,45 @@ import type { RegistrationResult } from './spec'
  */
 
 export type ToolCallEvent = {
+  callId: number
   tool: string
   argsSummary: string
   resultSummary: string
   entities: string[]
   ok: boolean
   startedAt: number
+  running?: boolean
+  /** Cancels the in-flight execute when the browser call is still pending. */
+  stop?: () => void
+  /** A successful, visible effect the agent caused in a named viewport. */
+  effects?: AgentViewportEffect[]
   /** Set when the call changed something a person can put back. */
-  undo?: () => void
+  undo?: () => void | Promise<void>
+}
+
+export type AgentViewportEffect = {
+  viewportId: string
+  label: string
+}
+
+export const WRITE_TOOLS = new Set([
+  'navigate',
+  'set_display',
+  'hang_layout',
+  'propose_measurement',
+  'draft_report',
+  'request_signature',
+])
+
+export function isWriteEvent(event: ToolCallEvent): boolean {
+  return WRITE_TOOLS.has(event.tool)
 }
 
 type Listener = () => void
 
 class Presence {
   private events: ToolCallEvent[] = []
+  private nextCallId = 1
   private registration: RegistrationResult = { ok: true, registered: [] }
   private listeners = new Set<Listener>()
 
@@ -42,6 +68,35 @@ class Presence {
     this.announce()
   }
 
+  begin(tool: string, argsSummary: string, startedAt: number, stop?: () => void): number {
+    const callId = this.nextCallId++
+    this.record({
+      callId,
+      tool,
+      argsSummary,
+      resultSummary: '',
+      entities: [],
+      ok: true,
+      startedAt,
+      running: true,
+      stop,
+    })
+    return callId
+  }
+
+  finish(callId: number, event: Omit<ToolCallEvent, 'callId' | 'running'>): void {
+    const index = this.events.findIndex(entry => entry.callId === callId)
+    const finished = { ...event, callId, running: false }
+    if (index === -1) {
+      this.events = [finished, ...this.events].slice(0, 200)
+    } else {
+      this.events = this.events.map((entry, entryIndex) =>
+        entryIndex === index ? finished : entry
+      )
+    }
+    this.announce()
+  }
+
   /** Newest first. The feed renders this directly. */
   getEvents(): ToolCallEvent[] {
     return this.events
@@ -49,6 +104,22 @@ class Presence {
 
   getLast(): ToolCallEvent | null {
     return this.events[0] ?? null
+  }
+
+  getLastWrite(): ToolCallEvent | null {
+    return this.events.find(isWriteEvent) ?? null
+  }
+
+  /** The only session-state decision. UI consumers render this; they do not infer it. */
+  getSessionState(waitingForHuman = false, now = Date.now()): SessionState {
+    if (!this.registration.ok && this.registration.failure.kind !== 'unsupported') return 'error'
+    const last = this.getLast()
+    if (waitingForHuman) return 'waiting-for-you'
+    if (last?.running && isWriteEvent(last)) return 'working'
+    if (last && !last.running && !last.ok) return 'error'
+    const lastWrite = this.getLastWrite()
+    if (lastWrite && now - lastWrite.startedAt < 2000) return 'done'
+    return 'idle'
   }
 
   setRegistration(registration: RegistrationResult): void {
@@ -77,15 +148,18 @@ export const presence = new Presence()
  * raw, because a half-translated line reads worse than a shorter one.
  */
 const PHRASING = new Map<string, (value: unknown) => string>([
-  ['slice_index', (value) => `slice ${String(value)}`],
+  [
+    'slice_index',
+    value => `slice ${typeof value === 'number' ? String(value + 1) : String(value)}`,
+  ],
   ['measurement_id', () => 'to a measurement'],
-  ['preset', (value) => `${String(value)} window`],
+  ['preset', value => `${String(value)} window`],
   ['reset_zoom_pan', () => 'reset zoom and pan'],
-  ['rows', (value) => `${String(value)} row${value === 1 ? '' : 's'}`],
-  ['cols', (value) => `${String(value)} across`],
+  ['rows', value => `${String(value)} row${value === 1 ? '' : 's'}`],
+  ['cols', value => `${String(value)} across`],
   ['tracked_only', () => 'tracked only'],
-  ['viewports', (value) => `${Array.isArray(value) ? value.length : 0} series`],
-  ['label', (value) => `labelled ${String(value)}`],
+  ['viewports', value => `${Array.isArray(value) ? value.length : 0} series`],
+  ['label', value => `labelled ${String(value)}`],
 ])
 
 export function summarize(input: Record<string, unknown>): string {

@@ -36,6 +36,9 @@
 window.config = {
   routerBasename: null,
   showStudyList: true,
+  investigationalUseDialog: {
+    option: 'never',
+  },
   extensions: [],
   modes: [],
   // below flag is for performance reasons, but it might not work for all servers
