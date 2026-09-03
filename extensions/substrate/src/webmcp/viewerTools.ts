@@ -33,6 +33,9 @@ type ViewportGridService = {
     layout: { numRows: number; numCols: number }
   }
   setActiveViewportId: (id: string) => void
+  setDisplaySetsForViewports: (
+    updates: { viewportId: string; displaySetInstanceUIDs: string[] }[]
+  ) => Promise<void>
 }
 
 type DisplaySet = {
@@ -337,10 +340,21 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
           return { viewport: viewportId, jumped_to: input.measurement_id }
         }
         if (typeof input.slice_index === 'number') {
-          deps.commandsManager.runCommand('jumpToImage', {
-            imageIndex: input.slice_index,
-            viewport: viewportId,
-          })
+          // jumpToImage wants the grid viewport object and reads `.id` off it,
+          // so passing the id as a string lands as undefined and throws
+          // "Unsupported viewport type" from deep inside Cornerstone.
+          try {
+            deps.commandsManager.runCommand('jumpToImage', {
+              imageIndex: input.slice_index,
+              viewport: { id: viewportId },
+            })
+          } catch (error) {
+            return refuse(
+              'SLICE_OUT_OF_RANGE',
+              error instanceof Error ? error.message : 'That slice does not exist in this series.',
+              'Call get_study for the image_count of the series, and use a zero-based index below it.'
+            )
+          }
           return { viewport: viewportId, slice_index: input.slice_index }
         }
         return refuse(
@@ -409,17 +423,37 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
 
   const hangLayout: WebMcpTool = {
     name: 'hang_layout',
-    title: 'Lay out the viewports',
+    title: 'Hang the study',
     description:
-      'Sets the viewport grid, for example one row by two columns to put the current ' +
-      'study beside its prior. Changes the screen immediately and is reversible by ' +
-      'calling it again. Returns the layout that was applied so you can confirm it.',
+      'Sets the viewport grid and puts a named series in each pane — one row by two ' +
+      'columns with the current study and its prior is the usual comparison hang. ' +
+      'Changes the screen immediately and is reversible by calling it again. Returns ' +
+      'the layout and what landed in each pane so you can confirm it went where you ' +
+      'meant. Get the series ids from get_study first; this refuses ids it does not ' +
+      'recognise rather than silently leaving a pane empty.',
     inputSchema: {
       type: 'object',
       required: ['rows', 'cols'],
       properties: {
         rows: { type: 'number', description: 'Number of viewport rows.' },
         cols: { type: 'number', description: 'Number of viewport columns.' },
+        viewports: {
+          type: 'array',
+          description:
+            'What to show in each pane, in reading order (left to right, top to bottom). ' +
+            'Omit to keep whatever is already displayed.',
+          items: {
+            type: 'object',
+            required: ['series_uid'],
+            properties: {
+              series_uid: {
+                type: 'string',
+                description: 'A series_uid from get_study.',
+              },
+            },
+            additionalProperties: false,
+          },
+        },
       },
       additionalProperties: false,
     },
@@ -440,11 +474,70 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
           'Nine is the practical ceiling; two or three is usual for a comparison.'
         )
       }
+
+      // Resolve every requested series BEFORE changing anything on screen, so a
+      // typo in one id does not leave the radiologist with a half-rearranged
+      // hang they have to put back by hand.
+      const requested = Array.isArray(input.viewports) ? input.viewports : []
+      const sets = displaySet?.getActiveDisplaySets() ?? []
+      const resolved: { seriesUid: string; displaySetUid: string }[] = []
+      for (const entry of requested) {
+        const seriesUid =
+          entry !== null && typeof entry === 'object'
+            ? String((entry as JsonObject).series_uid ?? '')
+            : ''
+        const match = sets.find((candidate) => candidate.SeriesInstanceUID === seriesUid)
+        if (!match) {
+          return refuse(
+            'NO_SUCH_SERIES',
+            `No loaded series has the id ${seriesUid || '(missing)'}.`,
+            'Call get_study to list the series that are actually loaded, and use the ' +
+              'series_uid values it returns.'
+          )
+        }
+        resolved.push({
+          seriesUid,
+          displaySetUid: match.displaySetInstanceUID,
+        })
+      }
+      if (resolved.length > rows * cols) {
+        return refuse(
+          'TOO_MANY_SERIES',
+          `You asked for ${resolved.length} series in ${rows * cols} panes.`,
+          'Either enlarge the grid or send fewer series.'
+        )
+      }
+
       deps.commandsManager.runCommand('setViewportGridLayout', {
         numRows: rows,
         numCols: cols,
       })
-      return { rows, cols }
+
+      // The grid rebuilds its viewport ids asynchronously, so read them back
+      // rather than assuming they are numbered the way they were before.
+      if (resolved.length > 0) {
+        await Promise.resolve()
+        const state = viewportGrid?.getState()
+        const viewportIds = state ? [...state.viewports.keys()] : []
+        const updates = resolved
+          .map((entry, index) => ({
+            viewportId: viewportIds[index],
+            displaySetInstanceUIDs: [entry.displaySetUid],
+          }))
+          .filter((entry) => Boolean(entry.viewportId))
+        if (updates.length > 0) {
+          await viewportGrid?.setDisplaySetsForViewports(updates)
+        }
+      }
+
+      return {
+        rows,
+        cols,
+        panes: resolved.map((entry, index) => ({
+          pane: index + 1,
+          series_uid: entry.seriesUid,
+        })),
+      }
     }),
   }
 

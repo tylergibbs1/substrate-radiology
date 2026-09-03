@@ -68,14 +68,32 @@ class Presence {
 
 export const presence = new Presence()
 
-/** A short, human summary of a tool's input. Never the raw JSON. */
+/**
+ * A short summary of what a call was asking for, in the reader's words.
+ *
+ * The feed sits on a radiologist's screen, so it must not print parameter
+ * names: "slice 140" is what happened, `slice_index 140` is how it was spelled
+ * in a schema. Anything without a phrasing here is left out rather than shown
+ * raw, because a half-translated line reads worse than a shorter one.
+ */
+const PHRASING = new Map<string, (value: unknown) => string>([
+  ['slice_index', (value) => `slice ${String(value)}`],
+  ['measurement_id', () => 'to a measurement'],
+  ['preset', (value) => `${String(value)} window`],
+  ['reset_zoom_pan', () => 'reset zoom and pan'],
+  ['rows', (value) => `${String(value)} row${value === 1 ? '' : 's'}`],
+  ['cols', (value) => `${String(value)} across`],
+  ['tracked_only', () => 'tracked only'],
+  ['viewports', (value) => `${Array.isArray(value) ? value.length : 0} series`],
+  ['label', (value) => `labelled ${String(value)}`],
+])
+
 export function summarize(input: Record<string, unknown>): string {
   const parts: string[] = []
   for (const [key, value] of Object.entries(input)) {
-    if (value === undefined || value === null) continue
-    const rendered =
-      typeof value === 'object' ? `${Array.isArray(value) ? value.length : ''}…` : String(value)
-    parts.push(`${key} ${rendered}`)
+    if (value === undefined || value === null || value === false) continue
+    const phrase = PHRASING.get(key)
+    if (phrase) parts.push(phrase(value))
   }
   return parts.join(', ')
 }
