@@ -53,6 +53,7 @@ export const token = {
   'motion/exit': 400,
   'motion/presence': 1150,
   'motion/shimmer': 1600,
+  // Relative time updates without motion; state-copy is only for semantic changes.
   'motion/state-copy': 180,
   'motion/error-hold': 2000,
 

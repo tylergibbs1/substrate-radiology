@@ -331,12 +331,7 @@ export function RecentWork({ bursts }: { bursts: ToolCallEvent[][] }): React.Rea
                   whiteSpace: 'nowrap',
                 }}
               >
-                <span
-                  className="substrate-state-copy"
-                  key={relative(Date.now() - event.startedAt)}
-                >
-                  {relative(Date.now() - event.startedAt)}
-                </span>
+                {relative(Date.now() - event.startedAt)}
               </time>
             </li>
           );

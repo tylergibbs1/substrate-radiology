@@ -37,6 +37,7 @@ type Props = {
   session: SessionState;
   railVerb: string;
   railObject: string;
+  railObjectKey: string;
 };
 
 export function AgentIslandExpanded({
@@ -58,6 +59,7 @@ export function AgentIslandExpanded({
   session,
   railVerb,
   railObject,
+  railObjectKey,
 }: Props): React.ReactElement {
   const autonomyLevel = autonomy.getLevel();
 
@@ -174,7 +176,7 @@ export function AgentIslandExpanded({
             ) : null}
             <span
               className="substrate-state-copy"
-              key={railObject}
+              key={railObjectKey}
               style={{
                 minWidth: 0,
                 overflow: 'hidden',

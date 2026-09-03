@@ -642,11 +642,12 @@ group. A summary that summarises one thing is longer than the thing.
 
 ### State copy changes without snapping
 
-When status, activity, or elapsed copy changes in place, the replacement fades
-in over 180ms with at most 2px of vertical travel. The container keeps its
-dimensions; text never animates layout. Reduced-motion users receive an
-immediate replacement. This transition is for changing copy, not for static
-history rows.
+When status or activity copy changes in place, the replacement fades in over
+180ms with at most 2px of vertical travel. The container keeps its dimensions;
+text never animates layout. Reduced-motion users receive an immediate
+replacement. Relative time is instrumentation: it updates in place with
+tabular figures and no motion. This transition is for semantic changes, not
+clocks or static history rows.
 
 ## Copy
 

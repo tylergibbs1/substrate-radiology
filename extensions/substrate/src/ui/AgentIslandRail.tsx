@@ -10,6 +10,7 @@ type Props = {
   session: SessionState;
   railVerb: string;
   railObject: string;
+  railObjectKey: string;
   last: ToolCallEvent | null;
   topConfirmation?: ReturnType<typeof autonomy.getPending>[number];
   setOpen: (open: boolean) => void;
@@ -21,6 +22,7 @@ export function AgentIslandRail({
   session,
   railVerb,
   railObject,
+  railObjectKey,
   last,
   topConfirmation,
   setOpen,
@@ -76,7 +78,7 @@ export function AgentIslandRail({
       </span>
       <span
         className="substrate-state-copy"
-        key={railObject}
+        key={railObjectKey}
         style={{
           minWidth: 0,
           overflow: 'hidden',

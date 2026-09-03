@@ -155,6 +155,21 @@ export function AgentIsland({
               : failure?.kind === 'unsupported'
                 ? 'in this browser'
                 : 'for this study';
+  const railObjectKey = topConfirmation
+    ? `confirmation:${topConfirmation.id}`
+    : topProposal
+      ? `proposal:${topProposal.annotationUID}`
+      : signatureWaiting
+        ? 'signature-waiting'
+        : replyCount > 0
+          ? `replies:${replyCount}`
+          : session === 'working' && last
+            ? `working:${last.callId}`
+            : lastWrite
+              ? `last-write:${lastWrite.callId}`
+              : failure
+                ? `failure:${failure.kind}`
+                : 'study';
 
   const repaint = () => {
     const viewportService = services.cornerstoneViewportService as
@@ -302,6 +317,7 @@ export function AgentIsland({
           session={session}
           railVerb={railVerb}
           railObject={railObject}
+          railObjectKey={railObjectKey}
         />
       </section>
     );
@@ -331,6 +347,7 @@ export function AgentIsland({
         session={session}
         railVerb={railVerb}
         railObject={railObject}
+        railObjectKey={railObjectKey}
         last={last}
         topConfirmation={topConfirmation}
         setOpen={open => open && openPanel()}
