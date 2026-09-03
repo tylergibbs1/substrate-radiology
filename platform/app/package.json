@@ -41,7 +41,8 @@
     "test:e2e:serve": "cross-env APP_CONFIG=config/e2e.js yarn start",
     "test:unit": "jest --watchAll",
     "test:unit:ci": "jest --ci --runInBand --collectCoverage",
-    "ci:generateSuccessVersion": "node -p -e \"require('./package.json').version\" > success_version.txt"
+    "ci:generateSuccessVersion": "node -p -e \"require('./package.json').version\" > success_version.txt",
+    "dev:substrate": "cross-env NODE_ENV=development APP_CONFIG=config/substrate.js PROXY_TARGET=/pacs/dicom-web PROXY_DOMAIN=http://localhost:8042 PROXY_PATH_REWRITE_FROM=/pacs/dicom-web PROXY_PATH_REWRITE_TO=/dicom-web webpack serve --config .webpack/webpack.pwa.js"
   },
   "files": [
     "dist",
