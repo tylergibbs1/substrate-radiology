@@ -71,6 +71,7 @@ export const token = {
   'wrap/heading': 'balance',
   'wrap/body': 'pretty',
   'lane/history-time': '8ch',
+  'layout/panel-width': '320px',
   'hit/target': '44px',
   'icon/disclosure-size': '7px',
 

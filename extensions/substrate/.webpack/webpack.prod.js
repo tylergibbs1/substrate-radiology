@@ -31,6 +31,13 @@ module.exports = (env, argv) => {
       minimize: true,
       sideEffects: false,
     },
+    // This extension intentionally ships as one UMD file so OHIF can load it as
+    // one product boundary. Keep a measured budget instead of webpack's generic
+    // 244 KiB web-page default; crossing this limit remains a build warning.
+    performance: {
+      maxAssetSize: 272 * 1024,
+      maxEntrypointSize: 272 * 1024,
+    },
     output: {
       path: ROOT_DIR,
       library: 'substrate-extension',

@@ -480,8 +480,6 @@ Stated so that a reader of this file knows where it stops.
   light theme.
 - Leader lines for overlapping targets on an image are unsolved. Labels sit in
   a lane at the frame edge, which works until two targets need the same line.
-- The docked panel width is not derived. It should be measured from the widest
-  real row at real type, and it currently is not.
 - `error` and the accent cannot be separated by colour, so shape carries the
   distinction. If a third state ever needs a colour, this system has no answer
   for it.
@@ -491,6 +489,13 @@ Stated so that a reader of this file knows where it stops.
   mode is mounted. New host tokens must enter that map before they ship.
 - Motion outside the presence signature is limited to the 180ms state-copy
   transition. Other transitions remain local until they recur.
+
+The docked panel is `320px`. That is the smallest width that holds the widest
+real history row at Bench type without moving its fixed lanes: `32px` combined
+OHIF and component padding on each side, a `6px` lamp, three `12px` gaps, a
+`120px` minimum action lane, a `32px` Undo lane, and an `8ch` time lane. OHIF
+may let the reader widen it, but Substrate mode must not let it collapse below
+that measured width.
 
 ## Changing this system
 

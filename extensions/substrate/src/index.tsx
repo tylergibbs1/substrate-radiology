@@ -28,6 +28,7 @@ import { token } from './designTokens';
 
 let controller: AbortController | null = null;
 const HOST_THEME_ID = 'substrate-host-theme';
+// Neutral host chrome keeps the agent mark as the only hue in Substrate mode.
 const HOST_THEME = `
   :root.substrate-mode {
     --highlight: 0 0% 85%;
@@ -53,11 +54,13 @@ const HOST_THEME = `
     --ring: 0 0% 27%;
   }
   .substrate-mode [data-active='true'] button { background: ${token['surface/inset']} !important; color: ${token['ink/high']} !important; }
+  .substrate-mode #viewerLayoutResizableRightPanel { min-width: ${token['layout/panel-width']} !important; }
   .substrate-mode .border-highlight { border-color: ${token['border/strong']} !important; }
   .substrate-mode .text-primary,
   .substrate-mode .text-primary-light,
   .substrate-mode .text-primary-active,
-  .substrate-mode .text-highlight { color: ${token['ink/low']} !important; }
+  .substrate-mode .text-highlight,
+  .substrate-mode .text-actions-primary { color: ${token['ink/low']} !important; }
   .substrate-mode .bg-primary,
   .substrate-mode .bg-primary-main,
   .substrate-mode .bg-primary-active,
@@ -67,7 +70,9 @@ const HOST_THEME = `
   .substrate-mode .bg-secondary-main,
   .substrate-mode .bg-secondary-light,
   .substrate-mode .bg-highlight,
-  .substrate-mode .bg-customblue-40 { background-color: ${token['surface/inset']} !important; }
+  .substrate-mode .bg-customblue-40,
+  .substrate-mode .bg-bkg-med { background-color: ${token['surface/inset']} !important; }
+  .substrate-mode .bg-bkg-low { background-color: ${token['surface/room']} !important; }
   .substrate-mode .border-primary,
   .substrate-mode .border-primary-dark,
   .substrate-mode .border-secondary-light { border-color: ${token['border/strong']} !important; }
