@@ -2,6 +2,7 @@ import React from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 
 import { AgentIsland } from './AgentIsland'
+import { SignatureModal } from './SignatureModal'
 
 /**
  * Mount the island outside OHIF's React tree.
@@ -25,7 +26,12 @@ export function mountAgentIsland(services: Record<string, unknown>): void {
     document.body.appendChild(container)
   }
   root = createRoot(container)
-  root.render(<AgentIsland services={services} />)
+  root.render(
+    <>
+      <AgentIsland services={services} />
+      <SignatureModal services={services} />
+    </>
+  )
 }
 
 export function unmountAgentIsland(): void {

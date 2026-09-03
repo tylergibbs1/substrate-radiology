@@ -1,5 +1,14 @@
 import { findTargetSlice, placeProposal, type TargetInstance } from '../engine/place'
-import { accept, getProposal, getProposals, isCitable } from '../engine/proposals'
+import { getProposal, isCitable } from '../engine/proposals'
+import {
+  addVersion,
+  currentVersion,
+  pendingRequest,
+  requestSignature,
+  signature,
+  signatureIsStale,
+  type Sentence,
+} from '../engine/report'
 import { presence, summarize } from './presence'
 import { refuse, type JsonObject, type JsonValue, type WebMcpTool } from './spec'
 
@@ -310,9 +319,20 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
             }
           })
         : []
+      const version = currentVersion()
+      const signed = signature()
       return {
         timepoints,
         panes,
+        report: version
+          ? {
+              version: version.version,
+              sentences: version.sentences.length,
+              signed: signed !== null && !signatureIsStale(),
+              signature_stale: signatureIsStale(),
+              awaiting_signature: pendingRequest()?.status === 'pending',
+            }
+          : null,
         studies_open: studies.length,
         study_uid: studies[0] ?? '',
         prior_timepoints: Math.max(0, studies.length - 1),
@@ -928,6 +948,185 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
     }),
   }
 
+
+  const draftReport: WebMcpTool = {
+    name: 'draft_report',
+    title: 'Assemble the findings from the measurements',
+    description:
+      'Writes a report draft from measurements that already exist. Every sentence may ' +
+      'cite measurement ids, and a sentence that cites none is flagged as unsupported — ' +
+      'it is not refused, because a radiologist writes true things that are not ' +
+      'measurements, but the signer is shown it separately and has to accept it ' +
+      'deliberately. It refuses to cite a proposal nobody has accepted. ' +
+      'You are assembling, not interpreting: every number in a sentence must come from ' +
+      'list_measurements or compare_with_prior, and you may not describe anything you ' +
+      'think you can see in the image. ' +
+      'When the radiologist has replied to a sentence, answer them by sending that ' +
+      'sentence again with replaces_sentence_id and answers_reply_id set, rather than ' +
+      'submitting a fresh draft over the top of their question.',
+    inputSchema: {
+      type: 'object',
+      required: ['template', 'sentences'],
+      properties: {
+        template: {
+          type: 'string',
+          description: 'The report shape, for example "chest CT, longitudinal".',
+        },
+        note_to_signer: {
+          type: 'string',
+          description: 'Anything the radiologist should know before reading it.',
+        },
+        sentences: {
+          type: 'array',
+          description: 'The report, in order.',
+          items: {
+            type: 'object',
+            required: ['section', 'text'],
+            properties: {
+              section: {
+                type: 'string',
+                description: 'Which part of the report, for example Findings or Impression.',
+              },
+              text: { type: 'string', description: 'One sentence.' },
+              cites: {
+                type: 'array',
+                description: 'measurement_ids this sentence rests on.',
+                items: { type: 'string' },
+              },
+              replaces_sentence_id: {
+                type: 'string',
+                description: 'The sentence this revises, when answering a reply.',
+              },
+              answers_reply_id: {
+                type: 'string',
+                description: 'The reply this answers.',
+              },
+            },
+            additionalProperties: false,
+          },
+        },
+      },
+      additionalProperties: false,
+    },
+    execute: observed('draft_report', () => [], async (input) => {
+      const rows = Array.isArray(input.sentences) ? input.sentences : []
+      if (rows.length === 0) {
+        return refuse(
+          'EMPTY_REPORT',
+          'A report needs at least one sentence.',
+          'Call compare_with_prior first and write one sentence per finding.'
+        )
+      }
+
+      const known = new Set((measurement?.getMeasurements() ?? []).map((entry) => entry.uid))
+      const sentences: Sentence[] = []
+      const flagged: string[] = []
+
+      for (const [index, row] of rows.entries()) {
+        const entry = row as JsonObject
+        const text = String(entry.text ?? '').trim()
+        if (!text) {
+          return refuse(
+            'EMPTY_SENTENCE',
+            `Sentence ${index + 1} has no text.`,
+            'Every sentence needs something in it.'
+          )
+        }
+        const cites = Array.isArray(entry.cites) ? entry.cites.map((c) => String(c)) : []
+        for (const id of cites) {
+          if (!known.has(id)) {
+            return refuse(
+              'NO_SUCH_MEASUREMENT',
+              `Sentence ${index + 1} cites a measurement that does not exist: ${id}.`,
+              'Call list_measurements for the current ids.'
+            )
+          }
+          if (!isCitable(id)) {
+            return refuse(
+              'NOT_ACCEPTED',
+              `Sentence ${index + 1} cites a copy the radiologist has not accepted yet.`,
+              'A proposal is not evidence until a person accepts it. Ask them to review it, ' +
+                'or cite the measurement it was copied from instead.'
+            )
+          }
+        }
+        const sentenceId = `s${index + 1}-${Date.now()}`
+        if (cites.length === 0) flagged.push(sentenceId)
+        sentences.push({
+          sentenceId,
+          section: String(entry.section ?? 'Findings'),
+          text,
+          author: { type: 'agent', label: 'your agent' },
+          provenance: cites.map((id) => ({ measurementId: id })),
+          replacesSentenceId:
+            typeof entry.replaces_sentence_id === 'string' ? entry.replaces_sentence_id : undefined,
+          replies: [],
+        })
+      }
+
+      const version = await addVersion(
+        String(input.template ?? 'report'),
+        sentences,
+        { type: 'agent', label: 'your agent' },
+        typeof input.note_to_signer === 'string' ? input.note_to_signer : undefined
+      )
+
+      return {
+        version: version.version,
+        hash: version.hash,
+        sentences: sentences.length,
+        unsupported: flagged.length,
+        flags: flagged,
+        note:
+          flagged.length > 0
+            ? `${flagged.length} sentence(s) cite no measurement. The radiologist will be shown ` +
+              'them separately and has to accept each one before signing.'
+            : 'Every sentence cites a measurement.',
+      }
+    }),
+  }
+
+  const requestSignatureTool: WebMcpTool = {
+    name: 'request_signature',
+    title: 'Ask the radiologist to sign',
+    description:
+      'Puts the report in front of the radiologist to sign. Returns immediately with ' +
+      'pending — it does not wait, and it does not sign anything. Only the person can ' +
+      'do that, in the dialog this opens. Poll get_context to see whether they signed, ' +
+      'edited, or declined. This is the only consequential action in the tool set.',
+    inputSchema: {
+      type: 'object',
+      required: ['summary_for_signer'],
+      properties: {
+        summary_for_signer: {
+          type: 'string',
+          description:
+            'One or two sentences telling the radiologist what they are about to put ' +
+            'their name to, and anything you want them to check.',
+        },
+      },
+      additionalProperties: false,
+    },
+    execute: observed('request_signature', () => [], async (input) => {
+      const version = currentVersion()
+      if (!version) {
+        return refuse(
+          'NO_REPORT',
+          'There is no report to sign.',
+          'Call draft_report first.'
+        )
+      }
+      const opened = requestSignature(String(input.summary_for_signer ?? ''))
+      return {
+        signature_request_id: opened?.requestId ?? '',
+        status: 'pending',
+        version: version.version,
+        hash: version.hash,
+        note: 'The radiologist decides. Poll get_context for the outcome.',
+      }
+    }),
+  }
+
   return [
     getContext,
     getStudy,
@@ -937,5 +1136,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
     hangLayout,
     proposeMeasurement,
     compareWithPrior,
+    draftReport,
+    requestSignatureTool,
   ]
 }
