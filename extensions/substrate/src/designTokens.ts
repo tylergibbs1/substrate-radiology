@@ -10,6 +10,7 @@ export const token = {
   'action/primary-hover': '#d8d8d8',
   'action/primary-press': '#ffffff',
   'on/primary': '#1c1c1c',
+  'host/tooltip-ink': '#ffffff',
   'action/disabled': '#2a2a2a',
   'on/disabled': '#7b7b7b',
 

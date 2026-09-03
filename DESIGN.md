@@ -14,6 +14,7 @@ colors:
   on-surface-dim: "#7b7b7b"
   primary: "#ffffff"
   on-primary: "#1c1c1c"
+  host-tooltip-ink: "#ffffff"
   signal-mark: "#8b76ff"
   signal-stroke: "#6d52ff"
   on-signal: "#ffffff"
@@ -220,6 +221,10 @@ a change of surface.
   of the ladder: 4.35 on `surface-card`, 3.39 on `surface-raised`.
 - **Primary (#ffffff) on On-primary (#1c1c1c):** The one filled action per
   surface. Light on dark; the reverse of the surface it sits on.
+- **Host tooltip ink (#ffffff):** OHIF reuses its primary-foreground token for
+  both filled-button text and tooltip titles. Substrate separates the tooltip
+  title at the host boundary so it is 14.35:1 on `surface-inset`; supporting text
+  stays `on-surface-muted`.
 - **Signal-mark (#8b76ff):** The agent, on an interface surface. Solid marks
   only: the lamp, the arrow, the active pill. 5.38 on `surface-card`.
 - **Signal-stroke (#6d52ff):** The agent, on an image. Thin strokes only: the
@@ -517,6 +522,9 @@ Substrate mode therefore ships a neutral host theme. Every hue in the toolbar,
 the icon set, and the viewport chrome goes to chroma zero, and the active
 states are carried by the ladder: a selected tool is `surface-inset`, an
 active viewport edge is `line-strong`. Nothing in the host is allowed a hue.
+Tooltip titles use `host/tooltip-ink`, never OHIF's shared
+`primary-foreground`, because the latter is dark for Substrate's filled
+buttons.
 
 This is not a preference about the viewer's taste. Any accent, in any hue,
 fails the same way if the chrome around it is chromatic, because the eye

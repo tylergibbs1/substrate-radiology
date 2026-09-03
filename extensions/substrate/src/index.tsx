@@ -76,6 +76,9 @@ const HOST_THEME = `
   .substrate-mode .border-primary,
   .substrate-mode .border-primary-dark,
   .substrate-mode .border-secondary-light { border-color: ${token['border/strong']} !important; }
+  .substrate-mode [data-radix-popper-content-wrapper] .text-primary-foreground {
+    color: ${token['host/tooltip-ink']} !important;
+  }
 `;
 
 const substrateExtension = {
