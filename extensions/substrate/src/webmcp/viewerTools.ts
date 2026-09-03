@@ -43,10 +43,25 @@ type DisplaySet = {
   SeriesInstanceUID: string
   StudyInstanceUID: string
   SeriesDescription?: string
+  SeriesNumber?: number
   Modality?: string
   SeriesDate?: string
+  StudyDate?: string
   numImageFrames?: number
   isReconstructable?: boolean
+  instances?: { StudyDate?: string; SeriesDate?: string }[]
+}
+
+/**
+ * When this series was acquired.
+ *
+ * The date is the only thing that tells a prior from the current study, and it
+ * is not on the display set — OHIF leaves it on the instances. A longitudinal
+ * comparison built without it would silently compare the wrong two rounds.
+ */
+function acquiredOn(displaySet: DisplaySet): string {
+  const instance = displaySet.instances?.[0]
+  return instance?.StudyDate ?? instance?.SeriesDate ?? displaySet.SeriesDate ?? ''
 }
 
 type DisplaySetService = {
@@ -75,6 +90,10 @@ type TrackedMeasurementsService = {
   getTrackedSeries: () => string[]
 }
 
+type CornerstoneViewportService = {
+  getCornerstoneViewport: (viewportId: string) => { element?: HTMLElement } | undefined
+}
+
 function services(deps: Deps) {
   const all = deps.servicesManager.services
   return {
@@ -82,7 +101,49 @@ function services(deps: Deps) {
     displaySet: all.displaySetService as DisplaySetService | undefined,
     measurement: all.measurementService as MeasurementService | undefined,
     tracked: all.trackedMeasurementsService as TrackedMeasurementsService | undefined,
+    cornerstone: all.cornerstoneViewportService as CornerstoneViewportService | undefined,
   }
+}
+
+/**
+ * The window/level presets, by the name a radiologist says out loud.
+ *
+ * These are OHIF's own CT values (extensions/cornerstone defaultWindowLevelPresets).
+ * They are duplicated rather than read through the customization service on
+ * purpose: the built-in setWindowLevelPreset command only ever acts on the
+ * ACTIVE viewport and throws if that viewport is not yet rendered, which makes
+ * it useless for "put lung windows on the prior". Substrate resolves the preset
+ * itself and sets the window on the viewport it was actually asked about.
+ */
+const CT_PRESETS = new Map<string, { window: number; level: number }>([
+  ['soft tissue', { window: 400, level: 40 }],
+  ['lung', { window: 1500, level: -600 }],
+  ['liver', { window: 150, level: 90 }],
+  ['bone', { window: 2500, level: 480 }],
+  ['brain', { window: 80, level: 40 }],
+])
+
+/**
+ * Wait until a viewport is actually usable.
+ *
+ * Changing the layout destroys and rebuilds viewport instances. Anything that
+ * touches one in the gap gets Cornerstone's "The stack viewport has been
+ * destroyed and is no longer usable" — thrown asynchronously during a later
+ * render, so the tool call itself appears to succeed and a red overlay lands on
+ * the radiologist's screen a moment afterwards. Waiting for the rebuilt
+ * instance is the only reliable fix; retrying after the throw is too late.
+ */
+async function viewportReady(
+  cornerstone: CornerstoneViewportService | undefined,
+  viewportId: string
+): Promise<boolean> {
+  if (!cornerstone) return true
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const viewport = cornerstone.getCornerstoneViewport(viewportId)
+    if (viewport?.element?.isConnected) return true
+    await new Promise((resolve) => setTimeout(resolve, 50))
+  }
+  return false
 }
 
 /* -------------------------------------------------------------- helpers --- */
@@ -95,7 +156,9 @@ function describeSeries(displaySet: DisplaySet): JsonObject {
     display_set_id: displaySet.displaySetInstanceUID,
     description: displaySet.SeriesDescription ?? '',
     modality: displaySet.Modality ?? '',
-    series_date: displaySet.SeriesDate ?? '',
+    // Sort timepoints by this. It is YYYYMMDD, so it sorts as a string.
+    study_date: acquiredOn(displaySet),
+    series_number: displaySet.SeriesNumber ?? 0,
     image_count: displaySet.numImageFrames ?? 0,
     reconstructable: Boolean(displaySet.isReconstructable),
   }
@@ -172,7 +235,7 @@ function observed(
 /* ---------------------------------------------------------------- tools --- */
 
 export function buildViewerTools(deps: Deps): WebMcpTool[] {
-  const { viewportGrid, displaySet, measurement, tracked } = services(deps)
+  const { viewportGrid, displaySet, measurement, tracked, cornerstone } = services(deps)
 
   const trackedSeries = () => tracked?.getTrackedSeries() ?? []
 
@@ -182,8 +245,11 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
     description:
       'Start here. Returns the study that is open, which prior timepoints exist, the ' +
       'current viewport layout, how many measurements the radiologist has made, and a ' +
-      'suggested next step. Read-only and safe to call at any time. Call this before ' +
-      'anything else so you are not guessing at what is on screen.',
+      'suggested next step. It also names every viewport pane and what is showing in ' +
+      'it, which is how you address a specific pane in navigate and set_display — ' +
+      'without a viewport id those act on the active pane only. Read-only and safe to ' +
+      'call at any time. Call this before anything else so you are not guessing at ' +
+      'what is on screen.',
     annotations: { readOnlyHint: true },
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     execute: observed('get_context', () => [], async () => {
@@ -203,7 +269,25 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
                 'Call list_measurements to read back what the radiologist measured.',
                 'Call compare_with_prior once the same lesions are measured at both timepoints.',
               ]
+      const timepoints = [...new Set(sets.map((entry) => acquiredOn(entry)).filter(Boolean))].sort()
+      // Name every pane. Without this an agent can only ever drive whichever
+      // viewport happens to be active, which makes a side-by-side comparison
+      // impossible to work in.
+      const panes = state
+        ? [...state.viewports.entries()].map(([viewportId, viewport], index) => {
+            const uid = viewport.displaySetInstanceUIDs?.[0] ?? ''
+            const shown = uid ? displaySet?.getDisplaySetByUID(uid) : undefined
+            return {
+              viewport: viewportId,
+              pane: index + 1,
+              series_uid: shown?.SeriesInstanceUID ?? '',
+              study_date: shown ? acquiredOn(shown) : '',
+            }
+          })
+        : []
       return {
+        timepoints,
+        panes,
         studies_open: studies.length,
         study_uid: studies[0] ?? '',
         prior_timepoints: Math.max(0, studies.length - 1),
@@ -340,6 +424,13 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
           return { viewport: viewportId, jumped_to: input.measurement_id }
         }
         if (typeof input.slice_index === 'number') {
+          if (!(await viewportReady(cornerstone, viewportId))) {
+            return refuse(
+              'VIEWPORT_NOT_READY',
+              'That viewport is still being built, so nothing was moved.',
+              'Wait a moment and call navigate again; hanging a layout takes a second to settle.'
+            )
+          }
           // jumpToImage wants the grid viewport object and reads `.id` off it,
           // so passing the id as a string lands as undefined and throws
           // "Unsupported viewport type" from deep inside Cornerstone.
@@ -398,17 +489,30 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
           'Open a study first, then call get_context.'
         )
       }
+      if (!(await viewportReady(cornerstone, viewportId))) {
+        return refuse(
+          'VIEWPORT_NOT_READY',
+          'That viewport is still being built, so the display was not changed.',
+          'Wait a moment and call set_display again.'
+        )
+      }
       const applied: string[] = []
       if (typeof input.preset === 'string' && input.preset) {
-        deps.commandsManager.runCommand('setWindowLevelPreset', {
-          presetName: input.preset,
+        const key = input.preset.trim().toLowerCase()
+        const preset = CT_PRESETS.get(key)
+        if (!preset) {
+          return refuse(
+            'NO_SUCH_PRESET',
+            `There is no window preset called "${input.preset}".`,
+            `Use one of: ${[...CT_PRESETS.keys()].join(', ')}.`
+          )
+        }
+        deps.commandsManager.runCommand('setViewportWindowLevel', {
           viewportId,
+          windowWidth: preset.window,
+          windowCenter: preset.level,
         })
-        applied.push(`preset ${input.preset}`)
-      }
-      if (input.reset_zoom_pan === true) {
-        deps.commandsManager.runCommand('resetViewport', { viewportId })
-        applied.push('reset zoom and pan')
+        applied.push(`${key} window`)
       }
       if (applied.length === 0) {
         return refuse(
@@ -513,28 +617,44 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
         numCols: cols,
       })
 
-      // The grid rebuilds its viewport ids asynchronously, so read them back
-      // rather than assuming they are numbered the way they were before.
+      // The grid rebuilds its viewport ids asynchronously. A single microtask
+      // is not enough — waiting only that long assigns the series to viewports
+      // that are about to be torn down, and the new panes then come up holding
+      // whatever the hanging protocol chose. Wait for the grid to actually be
+      // the size that was asked for.
       if (resolved.length > 0) {
-        await Promise.resolve()
-        const state = viewportGrid?.getState()
-        const viewportIds = state ? [...state.viewports.keys()] : []
+        const wanted = rows * cols
+        let viewportIds: string[] = []
+        for (let attempt = 0; attempt < 60; attempt += 1) {
+          const state = viewportGrid?.getState()
+          viewportIds = state ? [...state.viewports.keys()] : []
+          if (viewportIds.length >= wanted) break
+          await new Promise((resolve) => setTimeout(resolve, 50))
+        }
         const updates = resolved
           .map((entry, index) => ({
             viewportId: viewportIds[index],
             displaySetInstanceUIDs: [entry.displaySetUid],
           }))
           .filter((entry) => Boolean(entry.viewportId))
-        if (updates.length > 0) {
-          await viewportGrid?.setDisplaySetsForViewports(updates)
+        if (updates.length < resolved.length) {
+          return refuse(
+            'GRID_NOT_READY',
+            'The viewport grid did not finish rebuilding, so the series were not placed.',
+            'Call hang_layout again; the layout itself was applied.'
+          )
         }
+        await viewportGrid?.setDisplaySetsForViewports(updates)
       }
 
+      const finalState = viewportGrid?.getState()
+      const finalIds = finalState ? [...finalState.viewports.keys()] : []
       return {
         rows,
         cols,
         panes: resolved.map((entry, index) => ({
           pane: index + 1,
+          viewport: finalIds[index] ?? '',
           series_uid: entry.seriesUid,
         })),
       }

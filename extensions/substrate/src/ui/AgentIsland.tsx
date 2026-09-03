@@ -72,7 +72,10 @@ export function AgentIsland(): React.ReactElement | null {
     line = failure.kind === 'unsupported' ? 'No agent in this browser' : failure.message
   } else if (last && !last.ok) {
     dot = '#f87171'
-    line = `Could not ${PHRASE.get(last.tool) ?? last.tool}`
+    // The phrases are gerunds ("hanging the study"), so a failure reads as
+    // "hanging the study — did not go through" rather than the ungrammatical
+    // "Could not hanging the study".
+    line = `${PHRASE.get(last.tool) ?? last.tool} — did not go through`
   } else if (working && last) {
     dot = '#38bdf8'
     line = `Agent is ${PHRASE.get(last.tool) ?? last.tool}`
