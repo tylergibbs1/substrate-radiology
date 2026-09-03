@@ -10,8 +10,9 @@
 
 This record closes the previously informal S1–S7 exercise. The executable run
 is `extensions/substrate/src/acceptance/s1-s7.test.ts`; it registers the ten
-production tool objects through `document.modelContext`, retrieves them from
-that registered surface, and completes the whole sequence through those tools.
+production tool objects through `document.modelContext`, discovers them with
+`getTools()`, invokes them through `executeTool()`, parses its stringified JSON
+result, and completes the whole sequence through that surface.
 Human-only actions are inserted explicitly at their product boundaries. They
 are not replaced with agent tools.
 

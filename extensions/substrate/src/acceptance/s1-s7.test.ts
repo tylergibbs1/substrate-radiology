@@ -154,11 +154,20 @@ describe('S1-S7 WebMCP acceptance sequence', () => {
     const modelContext = Object.assign(new EventTarget(), {
       registerTool: async (tool: WebMcpTool) => void registered.set(tool.name, tool),
       getTools: async () => [...registered.values()],
+      executeTool: async (
+        tool: WebMcpTool,
+        input: Record<string, any> = {},
+        options?: { signal?: AbortSignal }
+      ) => JSON.stringify(await tool.execute(input, options)),
     });
     Object.defineProperty(document, 'modelContext', { configurable: true, value: modelContext });
     const registration = await register(tools, new AbortController().signal);
     expect(registration).toEqual({ ok: true, registered: tools.map(tool => tool.name) });
-    const call = (name: string, input: Record<string, any>) => registered.get(name)!.execute(input);
+    const discovered = await modelContext.getTools();
+    const call = async (name: string, input: Record<string, any>) => {
+      const tool = discovered.find(entry => entry.name === name)!;
+      return JSON.parse(await modelContext.executeTool(tool, input));
+    };
 
     // S1 — WebMCP hangs current + prior, axial, with lung windows.
     await expect(

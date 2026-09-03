@@ -22,33 +22,38 @@
  *    swallowing it.
  */
 
-export type JsonPrimitive = string | number | boolean | null
-export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue }
-export type JsonObject = { [key: string]: JsonValue }
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+export type JsonObject = { [key: string]: JsonValue };
 
 /** The two annotation hints the spec actually defines. There are no others. */
 export type ToolAnnotations = {
-  readOnlyHint?: boolean
-  untrustedContentHint?: boolean
-}
+  readOnlyHint?: boolean;
+  untrustedContentHint?: boolean;
+};
 
 export type WebMcpTool = {
-  name: string
-  title: string
-  description: string
-  inputSchema?: JsonObject
-  annotations?: ToolAnnotations
-  execute: (input: JsonObject, context?: { signal?: AbortSignal }) => Promise<JsonValue>
-}
+  name: string;
+  title: string;
+  description: string;
+  inputSchema?: JsonObject;
+  annotations?: ToolAnnotations;
+  execute: (input: JsonObject, context?: { signal?: AbortSignal }) => Promise<JsonValue>;
+};
 
 export type ModelContext = EventTarget & {
-  registerTool: (tool: WebMcpTool, options?: { signal?: AbortSignal }) => Promise<void>
-  getTools?: () => WebMcpTool[] | Promise<WebMcpTool[]>
-}
+  registerTool: (tool: WebMcpTool, options?: { signal?: AbortSignal }) => Promise<void>;
+  getTools?: () => WebMcpTool[] | Promise<WebMcpTool[]>;
+  executeTool?: (
+    tool: WebMcpTool,
+    input?: JsonObject,
+    options?: { signal?: AbortSignal }
+  ) => Promise<string>;
+};
 
 type ModelContextHost = {
-  modelContext?: ModelContext
-}
+  modelContext?: ModelContext;
+};
 
 /** Why the tools are not available, in words a person can act on. */
 export type RegistrationFailure =
@@ -56,11 +61,11 @@ export type RegistrationFailure =
   | { kind: 'insecure'; message: string }
   | { kind: 'blocked'; message: string }
   | { kind: 'invalid'; message: string }
-  | { kind: 'unknown'; message: string }
+  | { kind: 'unknown'; message: string };
 
 export type RegistrationResult =
   | { ok: true; registered: string[] }
-  | { ok: false; registered: string[]; failure: RegistrationFailure }
+  | { ok: false; registered: string[]; failure: RegistrationFailure };
 
 /**
  * The context, if this browser has one. `navigator.modelContext` is the older
@@ -68,32 +73,32 @@ export type RegistrationResult =
  * build that predates the move to `document`.
  */
 export function getModelContext(): ModelContext | null {
-  if (typeof document === 'undefined') return null
-  const fromDocument = (document as unknown as ModelContextHost).modelContext
-  if (fromDocument) return fromDocument
+  if (typeof document === 'undefined') return null;
+  const fromDocument = (document as unknown as ModelContextHost).modelContext;
+  if (fromDocument) return fromDocument;
   const fromNavigator =
     typeof navigator === 'undefined'
       ? undefined
-      : (navigator as unknown as ModelContextHost).modelContext
-  return fromNavigator ?? null
+      : (navigator as unknown as ModelContextHost).modelContext;
+  return fromNavigator ?? null;
 }
 
 export function isSupported(): boolean {
-  return getModelContext() !== null
+  return getModelContext() !== null;
 }
 
 function describe(error: unknown): RegistrationFailure {
   // SAFETY: DOMException carries the name the spec defines; anything else is
   // reported as unknown rather than guessed at.
-  const name = error instanceof DOMException ? error.name : ''
-  const message = error instanceof Error ? error.message : String(error)
+  const name = error instanceof DOMException ? error.name : '';
+  const message = error instanceof Error ? error.message : String(error);
   if (name === 'SecurityError') {
     return {
       kind: 'insecure',
       message:
         'The browser refused to expose tools on this page because the origin is not ' +
         `trustworthy. Serve it over HTTPS or from localhost. (${message})`,
-    }
+    };
   }
   if (name === 'NotAllowedError') {
     return {
@@ -101,15 +106,15 @@ function describe(error: unknown): RegistrationFailure {
       message:
         'The tools permissions policy is switched off for this page, so no agent can ' +
         `see its tools. (${message})`,
-    }
+    };
   }
   if (name === 'InvalidStateError' || name === 'TypeError' || error instanceof TypeError) {
     return {
       kind: 'invalid',
       message: `A tool was rejected as malformed, so registration stopped. (${message})`,
-    }
+    };
   }
-  return { kind: 'unknown', message }
+  return { kind: 'unknown', message };
 }
 
 /**
@@ -123,33 +128,33 @@ export async function register(
   tools: WebMcpTool[],
   signal: AbortSignal
 ): Promise<RegistrationResult> {
-  const context = getModelContext()
-  if (!context) return { ok: false, registered: [], failure: { kind: 'unsupported' } }
+  const context = getModelContext();
+  if (!context) return { ok: false, registered: [], failure: { kind: 'unsupported' } };
 
-  const registered: string[] = []
+  const registered: string[] = [];
   for (const tool of tools) {
     try {
-      await context.registerTool(tool, { signal })
-      registered.push(tool.name)
+      await context.registerTool(tool, { signal });
+      registered.push(tool.name);
     } catch (error) {
-      return { ok: false, registered, failure: describe(error) }
+      return { ok: false, registered, failure: describe(error) };
     }
   }
-  return { ok: true, registered }
+  return { ok: true, registered };
 }
 
 /** What the tools panel reads back, so a person can see the live surface. */
 export function liveTools(): Promise<WebMcpTool[]> {
-  const context = getModelContext()
-  if (!context?.getTools) return Promise.resolve([])
+  const context = getModelContext();
+  if (!context?.getTools) return Promise.resolve([]);
   try {
-    return Promise.resolve(context.getTools()).catch(() => [])
+    return Promise.resolve(context.getTools()).catch(() => []);
   } catch {
-    return Promise.resolve([])
+    return Promise.resolve([]);
   }
 }
 
 /** An expected refusal. Returned, never thrown, so the agent can recover. */
 export function refuse(code: string, message: string, hint: string): JsonObject {
-  return { ok: false, code, message, hint }
+  return { ok: false, code, message, hint };
 }
