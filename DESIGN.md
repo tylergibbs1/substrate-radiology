@@ -82,17 +82,21 @@ components:
     statusLane: 104px
     statusTime: compact-relative
     scrollbarGutter: stable
-    detailsSections: preferences, timing, connection
+    detailsSections: activity, preferences, timing, connection
   panel-shell:
     headerHeight: 44px
     tabTarget: 44px
     tabMark: 32px
     content: contained
   recent-work:
-    default: collapsed
+    default: expanded
     summary: count
-    maxRows: 4
+    maxRows: 6
     rowHeight: 36px
+    order: oldest-to-newest
+    fullHistoryOrder: oldest-to-newest
+    overflow: sliding-window
+    fadeRows: 2
   connection-row:
     stateLane: 14ch
     labelOverflow: ellipsis
@@ -435,11 +439,18 @@ Tables are evidence:
   are removed. The active tab uses `surface-inset`, never signal. The panel body
   owns the remaining height with `min-height: 0` and cannot create a second
   page-height scroll surface. Other OHIF modes keep their native panel shell.
-- **Recent work:** Completed writes use one collapsed disclosure labelled by
-  count: `2 recent actions`. Opening it reveals at most 4 compact tool rows.
-  Each row keeps the shared lamp, action, Undo, and time lanes. The disclosure
-  is closed by default because completed work is supporting evidence, not the
-  primary task. Running work remains in the state line and plan.
+- **Recent work:** Completed writes use one expanded disclosure labelled by
+  count: `2 recent actions`. It reveals at most 6 compact tool rows, ordered
+  oldest to newest so the live edge stays at the bottom. The full Activity
+  history uses the same chronological order. Once more than
+  6 actions exist, the 2 oldest visible successful rows step down in opacity;
+  no gradient is introduced. A new row enters at the bottom and retained rows
+  move upward as a 180ms sliding window. Failed rows remain at full contrast.
+  Each row keeps the shared lamp, action, Undo, and time lanes. `View all
+  activity` opens the complete write history under Details. The disclosure is
+  open by default so recent actions remain directly auditable. Running work
+  remains in the state line and plan. Reduced-motion users receive the same
+  window without translation or fading transitions.
 - **Connection row:** Diagnostic tool rows use one shared `14ch` state lane.
   The tool title truncates with an ellipsis and exposes its full value on hover;
   `Read`, `Write`, and `untrusted` never wrap. The state lane is evidence, not a
@@ -539,7 +550,8 @@ Stated so that a reader of this file knows where it stops.
 - The neutral host theme maps OHIF's semantic theme variables while Substrate
   mode is mounted. New host tokens must enter that map before they ship.
 - Motion outside the presence signature is limited to the 180ms state-copy
-  transition. Other transitions remain local until they recur.
+  transition and the 180ms Recent work sliding window. Other transitions remain
+  local until they recur.
 
 The docked panel is `320px`. That is the smallest width that holds the widest
 real history row at Bench type without moving its fixed lanes: `32px` combined

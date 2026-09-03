@@ -58,6 +58,9 @@ export const token = {
   'motion/shimmer': 1600,
   // Relative time updates without motion; state-copy is only for semantic changes.
   'motion/state-copy': 180,
+  'motion/history-slide': 180,
+  'motion/ease-out': 'cubic-bezier(0.23, 1, 0.32, 1)',
+  'motion/ease-in-out': 'cubic-bezier(0.77, 0, 0.175, 1)',
   'motion/error-hold': 2000,
 
   'text/headline': '400 24px/1.2 "Inter Tight", Inter, sans-serif',
@@ -77,8 +80,11 @@ export const token = {
   'lane/status': '104px',
   'lane/history-time': '8ch',
   'lane/connection-state': '14ch',
-  'history/max-rows': 4,
+  'history/default-open': true,
+  'history/max-rows': 6,
   'history/row-height': '36px',
+  'history/fade-oldest': 0.55,
+  'history/fade-next': 0.78,
   'layout/panel-width': '320px',
   'layout/panel-shell-header-height': '44px',
   'layout/panel-tab-target': '44px',

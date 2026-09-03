@@ -261,8 +261,10 @@ export function AgentIsland({
       .substrate-control:active { transform: scale(.96); }
       .substrate-touch-hitbox { position: relative; }
       .substrate-touch-hitbox::after { position: absolute; top: 50%; left: 50%; width: ${token['hit/target']}; height: ${token['hit/target']}; content: ''; transform: translate(-50%, -50%); }
+      .substrate-history-row { transition: opacity ${token['motion/history-slide']}ms ${token['motion/ease-out']}; }
+      .substrate-history-row--newest { animation: substrate-history-row-in ${token['motion/history-slide']}ms ${token['motion/ease-out']} both; }
       .substrate-history-undo { opacity: 0; transition: color ${token['motion/enter']}ms ease-out, opacity ${token['motion/enter']}ms ease-out; }
-      .substrate-history-row:hover .substrate-history-undo, .substrate-history-undo:focus-visible { opacity: 1; }
+      .substrate-history-undo:focus-visible { opacity: 1; }
       .substrate-disclosure { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; width: 100%; min-height: ${token['hit/target']}; padding: 0; border-radius: ${token['radius/inner']}; color: ${token['ink/low']}; font: ${token['text/ui']}; list-style: none; cursor: pointer; transition: color ${token['motion/enter']}ms ease-out, background-color ${token['motion/enter']}ms ease-out; }
       .substrate-disclosure::-webkit-details-marker { display: none; }
       .substrate-disclosure::marker { content: ''; }
@@ -277,7 +279,9 @@ export function AgentIsland({
       .substrate-rail-button--primary:active { background: ${token['action/primary-press']}; }
       @keyframes substrate-thinking-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
       @keyframes substrate-state-copy-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
+      @keyframes substrate-history-row-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: translateY(0); } }
       @media (prefers-reduced-motion: reduce) { .substrate-island * { animation: none !important; transition: none !important; } }
+      @media (hover: hover) and (pointer: fine) { .substrate-history-row:hover .substrate-history-undo { opacity: 1; } }
       @media (hover: none) { .substrate-history-undo { opacity: 1; } }
     `}</style>
   );

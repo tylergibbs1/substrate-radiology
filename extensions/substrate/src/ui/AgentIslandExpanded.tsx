@@ -7,7 +7,11 @@ import { token, type AgentPanelView, type SessionState } from '../designTokens';
 import type { ToolCallEvent } from '../webmcp/presence';
 import type { RegisteredTool, RegistrationResult } from '../webmcp/spec';
 import { ReviewThread } from './ReviewThread';
-import { AgentIslandDetails } from './AgentIslandDetails';
+import {
+  AgentIslandDetails,
+  type AgentDetailsOpenState,
+  type AgentDetailsSection,
+} from './AgentIslandDetails';
 import {
   PendingConfirmations,
   RecentWork,
@@ -62,6 +66,14 @@ export function AgentIslandExpanded({
   railObjectKey,
 }: Props): React.ReactElement {
   const [view, setView] = useState<AgentPanelView>('work');
+  const [detailsOpen, setDetailsOpen] = useState<AgentDetailsOpenState>({
+    activity: false,
+    preferences: true,
+    timing: false,
+    connection: false,
+  });
+  const setDetailsSection = (section: AgentDetailsSection, value: boolean) =>
+    setDetailsOpen(current => ({ ...current, [section]: value }));
 
   return (
     <div
@@ -258,7 +270,14 @@ export function AgentIslandExpanded({
               showProposal={showProposal}
               repaint={repaint}
             />
-            <RecentWork bursts={bursts} />
+            <RecentWork
+              bursts={bursts}
+              onViewAll={() => {
+                closeCommands();
+                setDetailsSection('activity', true);
+                setView('details');
+              }}
+            />
           </div>
 
           <footer
@@ -286,10 +305,13 @@ export function AgentIslandExpanded({
 
         <AgentIslandDetails
           hidden={view !== 'details'}
+          bursts={bursts}
           instructionsText={instructionsText}
           setInstructionsText={setInstructionsText}
           toolAudit={toolAudit}
           registration={registration}
+          open={detailsOpen}
+          setSection={setDetailsSection}
           onBack={() => setView('work')}
         />
       </div>

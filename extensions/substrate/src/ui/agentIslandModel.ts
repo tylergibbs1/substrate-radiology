@@ -68,6 +68,18 @@ export function groupBursts(events: ToolCallEvent[]): ToolCallEvent[][] {
   return groups;
 }
 
+export function recentWorkWindow(eventsNewestFirst: ToolCallEvent[], maxRows: number) {
+  return {
+    events: eventsNewestFirst.slice(0, maxRows).reverse(),
+    hasOverflow: eventsNewestFirst.length > maxRows,
+    total: eventsNewestFirst.length,
+  };
+}
+
+export function chronologicalHistory(eventsNewestFirst: ToolCallEvent[]): ToolCallEvent[] {
+  return [...eventsNewestFirst].reverse();
+}
+
 export type IslandCommand = {
   label: string;
   disabled: boolean;

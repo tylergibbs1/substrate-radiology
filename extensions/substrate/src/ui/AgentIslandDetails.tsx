@@ -1,32 +1,40 @@
-import React, { useState } from 'react';
+import React from 'react';
 
 import { autonomy } from '../engine/autonomy';
 import { token } from '../designTokens';
+import type { ToolCallEvent } from '../webmcp/presence';
 import type { RegisteredTool, RegistrationResult } from '../webmcp/spec';
+import { ActivityHistory } from './AgentIslandDomainPanels';
 import { TimingComparison } from './TimingComparison';
 import { listResetStyle, panelHeadingStyle } from './agentIslandStyles';
 
+export type AgentDetailsSection = 'activity' | 'preferences' | 'timing' | 'connection';
+export type AgentDetailsOpenState = Record<AgentDetailsSection, boolean>;
+
 type Props = {
   hidden: boolean;
+  bursts: ToolCallEvent[][];
   instructionsText: string;
   setInstructionsText: (value: string) => void;
   toolAudit: RegisteredTool[];
   registration: RegistrationResult;
+  open: AgentDetailsOpenState;
+  setSection: (section: AgentDetailsSection, value: boolean) => void;
   onBack: () => void;
 };
 
 export function AgentIslandDetails({
   hidden,
+  bursts,
   instructionsText,
   setInstructionsText,
   toolAudit,
   registration,
+  open,
+  setSection,
   onBack,
 }: Props): React.ReactElement {
   const askBeforeChanges = autonomy.getLevel() === 'assist';
-  const [open, setOpen] = useState({ preferences: true, timing: false, connection: false });
-  const setSection = (section: keyof typeof open, value: boolean) =>
-    setOpen(current => ({ ...current, [section]: value }));
 
   return (
     <div
@@ -82,6 +90,17 @@ export function AgentIslandDetails({
           scrollbarGutter: token['layout/scrollbar-gutter'],
         }}
       >
+        {bursts.length > 0 ? (
+          <details
+            open={open.activity}
+            onToggle={event => setSection('activity', event.currentTarget.open)}
+            style={{ borderBottom: `1px solid ${token['border/hairline']}` }}
+          >
+            <summary className="substrate-disclosure">Activity</summary>
+            <ActivityHistory bursts={bursts} />
+          </details>
+        ) : null}
+
         <details
           open={open.preferences}
           onToggle={event => setSection('preferences', event.currentTarget.open)}
