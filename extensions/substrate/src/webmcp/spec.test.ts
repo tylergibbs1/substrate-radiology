@@ -215,6 +215,52 @@ describe('WebMCP host compatibility', () => {
     expect(executeTool.mock.calls[0][2]).toEqual({ signal: execution.signal });
   });
 
+  it('keeps registering object schemas when discovery exposes stringified metadata', async () => {
+    const definitions = new Map<string, NativeProducer>();
+    const descriptors: NativeDescriptor[] = [];
+    const registerTool = jest.fn(
+      (definition: NativeProducer, options?: { signal?: AbortSignal }) => {
+        if (typeof definition.inputSchema !== 'object') {
+          throw new TypeError(
+            "Failed to read the 'inputSchema' property: Failed to convert value to 'object'."
+          );
+        }
+        definitions.set(definition.name, definition);
+        const descriptor = {
+          ...descriptorFor(definition),
+          inputSchema: JSON.stringify(definition.inputSchema),
+        };
+        descriptors.push(descriptor);
+        options?.signal?.addEventListener(
+          'abort',
+          () => descriptors.splice(descriptors.indexOf(descriptor), 1),
+          { once: true }
+        );
+      }
+    );
+    const nativeContext = Object.assign(new EventTarget(), {
+      registerTool,
+      getTools: jest.fn(async () => descriptors),
+      executeTool: withArity(jest.fn(async () => '{}'), 2),
+    });
+    setHosts(nativeContext);
+
+    const context = getModelContext()!;
+    await expect(
+      register([tool('first'), tool('second')], new AbortController().signal)
+    ).resolves.toEqual({ ok: true, registered: ['first', 'second'] });
+
+    expect(registerTool).toHaveBeenCalledTimes(2);
+    expect(registerTool.mock.calls.every(call => typeof call[0].inputSchema === 'object')).toBe(
+      true
+    );
+    const discovered = await context.getTools!();
+    expect(discovered.map(entry => entry.inputSchema)).toEqual([
+      { type: 'object', properties: {} },
+      { type: 'object', properties: {} },
+    ]);
+  });
+
   it('normalizes a navigator legacy host with string schemas and preserves native identity', async () => {
     const definitions = new Map<string, NativeProducer>();
     const descriptors: NativeDescriptor[] = [];

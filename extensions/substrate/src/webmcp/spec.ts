@@ -164,9 +164,10 @@ function errorMessage(error: unknown): string {
 
 function isSchemaShapeFailure(error: unknown): boolean {
   const name = errorName(error);
+  const message = errorMessage(error);
   return (
-    name === 'TypeError' ||
-    (name === 'InvalidStateError' && /(?:json|schema)/i.test(errorMessage(error)))
+    (name === 'TypeError' && /(?:domstring|convert.+string|schema.+string)/i.test(message)) ||
+    (name === 'InvalidStateError' && /(?:json|schema)/i.test(message))
   );
 }
 
@@ -235,6 +236,11 @@ function adaptContext(nativeContext: NativeModelContext, exposeOnDocument: boole
 
   const nativeDescriptors = new WeakMap<object, NativeRegisteredTool>();
   let capabilities = detectModelContextCapabilities(nativeContext);
+  // Producer input and discovered metadata are separate contracts. Some Chrome
+  // builds accept an object in registerTool() but expose the same schema as a
+  // string from getTools(). Never use that discovered representation to choose
+  // what the producer sends on its next registration.
+  let producerSchema: SchemaEncoding = 'unknown';
   const target = new EventTarget();
   let ontoolchange: EventListener | null = null;
 
@@ -251,26 +257,18 @@ function adaptContext(nativeContext: NativeModelContext, exposeOnDocument: boole
 
   Object.assign(adapter, {
     async registerTool(tool: WebMcpTool, options?: ModelContextRegisterToolOptions): Promise<void> {
-      if (capabilities.registeredSchema === 'unknown') {
-        try {
-          const existing = await readNativeTools();
-          capabilities = detectModelContextCapabilities(nativeContext, existing);
-        } catch (_error) {
-          // Registration itself remains the authoritative capability probe.
-        }
-      }
-
       let encoding: Exclude<SchemaEncoding, 'unknown'> =
-        capabilities.registeredSchema === 'string' ? 'string' : 'object';
+        producerSchema === 'string' ? 'string' : 'object';
       try {
         await nativeContext.registerTool(producerForNative(tool, encoding), options);
       } catch (error) {
         if (encoding !== 'object' || !isSchemaShapeFailure(error)) throw error;
         encoding = 'string';
         await nativeContext.registerTool(producerForNative(tool, encoding), options);
-        capabilities = { ...capabilities, registeredSchema: 'string' };
+        producerSchema = 'string';
         return;
       }
+      producerSchema = encoding;
 
       try {
         const discovered = await readNativeTools();
