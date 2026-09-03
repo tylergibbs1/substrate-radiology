@@ -577,17 +577,20 @@ name in a chat bubble, never a persona.
 - **Ring.** On a write, a 2px signal ring rides the affected viewport's
   frame: 150ms in, 600ms hold, 400ms out. Once per burst, showing the final
   state. Never inside the image bounds.
-- **Chip.** For the same lifetime, an ink pill in the viewport corner naming
-  the effect: `slice 78`, `lung window`.
-- **Dot.** After the ring fades, a 6px lamp stays in that viewport's corner
-  until the reader touches that viewport.
+- **Caption.** The effect name stays in the docked state line or collapsed
+  status strip: `slice 78`, `lung window`. The viewport frame carries no text
+  chip because every exterior edge belongs to adjacent viewer chrome and no
+  interior edge may cover pixels.
+- **No persistent viewport mark.** When the ring ends, the viewport returns to
+  neutral. Attribution remains in Recent work rather than as a dot beside the
+  image.
 - **Lamp.** The same 6px mark, without motion, is the author label wherever
   the agent wrote something. Filled when a measurement stands behind the
   sentence; a ring when none does.
 - **Reads are silent.** Only writes are announced.
 - Under `prefers-reduced-motion`, the ring appears and disappears without
-  animation. Motion is never the only channel; the dot and the lamp are
-  static.
+  animation. Motion is never the only channel; the state line and Recent work
+  carry the same write in text.
 
 ## Standing instructions
 
@@ -616,8 +619,10 @@ them, one sentence that never changes: nothing reads the image, chooses its
 own coordinates, or signs. It is static because it describes what is fixed,
 and the pills describe what moves.
 
-At the most cautious level the question appears inline at the surface it
-concerns, with the choices stated as actions rather than as yes and no.
+At the most cautious level the question appears inline in the docked panel,
+or in the status strip while that panel is collapsed, with the choices stated
+as actions rather than as yes and no. A viewer-write question never overlays
+the viewport it concerns.
 Elsewhere the write happens and the undo is offered.
 
 ## Live surfaces

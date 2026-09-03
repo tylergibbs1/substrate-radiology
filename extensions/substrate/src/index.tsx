@@ -55,6 +55,10 @@ const HOST_THEME = `
   }
   .substrate-mode [data-active='true'] button { background: ${token['surface/inset']} !important; color: ${token['ink/high']} !important; }
   .substrate-mode #viewerLayoutResizableRightPanel { min-width: ${token['layout/panel-width']} !important; }
+  .substrate-mode #viewerLayoutResizableRightPanel[data-panel-size='0.0'] {
+    min-width: 0 !important;
+    max-width: 0 !important;
+  }
   .substrate-mode .border-highlight { border-color: ${token['border/strong']} !important; }
   .substrate-mode .text-primary,
   .substrate-mode .text-primary-light,

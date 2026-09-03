@@ -55,6 +55,104 @@ type ModelContextHost = {
   modelContext?: ModelContext;
 };
 
+type LegacyWebMcpTool = Omit<WebMcpTool, 'inputSchema' | 'execute'> & {
+  inputSchema?: string;
+  execute: (input: JsonObject | string, context?: { signal?: AbortSignal }) => Promise<JsonValue>;
+};
+
+type LegacyModelContext = EventTarget & {
+  registerTool: (tool: LegacyWebMcpTool, options?: { signal?: AbortSignal }) => Promise<void>;
+  getTools?: () => LegacyWebMcpTool[] | Promise<LegacyWebMcpTool[]>;
+  executeTool?: (
+    tool: LegacyWebMcpTool,
+    input?: string,
+    options?: { signal?: AbortSignal }
+  ) => Promise<string>;
+};
+
+const legacyAdapters = new WeakMap<object, ModelContext>();
+
+function parseObject(value: JsonObject | string | undefined): JsonObject {
+  if (typeof value !== 'string') return value ?? {};
+  const parsed = JSON.parse(value);
+  if (!parsed || Array.isArray(parsed) || typeof parsed !== 'object') {
+    throw new TypeError('WebMCP tool input must be a JSON object.');
+  }
+  return parsed as JsonObject;
+}
+
+/**
+ * Chrome's origin-trial implementation uses `navigator.modelContext`, a
+ * string schema, and stringified execution arguments. Keep that native surface
+ * available to browser agents while exposing the current object contract at
+ * `document.modelContext` for standards-shaped callers.
+ */
+function adaptLegacyContext(nativeContext: LegacyModelContext): ModelContext {
+  const cached = legacyAdapters.get(nativeContext);
+  if (cached) return cached;
+
+  const normalized = new Map<string, WebMcpTool>();
+  const nativeTools = new Map<string, LegacyWebMcpTool>();
+  const adapter = Object.assign(new EventTarget(), {
+    async registerTool(tool: WebMcpTool, options?: { signal?: AbortSignal }): Promise<void> {
+      const legacyTool: LegacyWebMcpTool = {
+        ...tool,
+        inputSchema: tool.inputSchema ? JSON.stringify(tool.inputSchema) : undefined,
+        execute: (input, context) => tool.execute(parseObject(input), context),
+      };
+      await nativeContext.registerTool(legacyTool, options);
+      normalized.set(tool.name, tool);
+      nativeTools.set(tool.name, legacyTool);
+      options?.signal?.addEventListener(
+        'abort',
+        () => {
+          normalized.delete(tool.name);
+          nativeTools.delete(tool.name);
+        },
+        { once: true }
+      );
+    },
+    async getTools(): Promise<WebMcpTool[]> {
+      if (!nativeContext.getTools) return [...normalized.values()];
+      const discovered = await nativeContext.getTools();
+      return discovered.map(nativeTool => {
+        const known = normalized.get(nativeTool.name);
+        if (known) return known;
+        return {
+          ...nativeTool,
+          inputSchema: nativeTool.inputSchema
+            ? (JSON.parse(nativeTool.inputSchema) as JsonObject)
+            : undefined,
+          execute: (input, context) => nativeTool.execute(input, context),
+        };
+      });
+    },
+    async executeTool(
+      tool: WebMcpTool,
+      input: JsonObject = {},
+      options?: { signal?: AbortSignal }
+    ): Promise<string> {
+      const nativeTool = nativeTools.get(tool.name);
+      if (nativeContext.executeTool && nativeTool) {
+        return nativeContext.executeTool(nativeTool, JSON.stringify(input), options);
+      }
+      return JSON.stringify(await tool.execute(input, { signal: options?.signal }));
+    },
+  }) as ModelContext;
+
+  legacyAdapters.set(nativeContext, adapter);
+  try {
+    Object.defineProperty(document, 'modelContext', {
+      configurable: true,
+      value: adapter,
+    });
+  } catch {
+    // Registration still works through the adapter even if the host locks the
+    // document property. The native navigator surface remains untouched.
+  }
+  return adapter;
+}
+
 /** Why the tools are not available, in words a person can act on. */
 export type RegistrationFailure =
   | { kind: 'unsupported' }
@@ -79,8 +177,10 @@ export function getModelContext(): ModelContext | null {
   const fromNavigator =
     typeof navigator === 'undefined'
       ? undefined
-      : (navigator as unknown as ModelContextHost).modelContext;
-  return fromNavigator ?? null;
+      : ((navigator as unknown as ModelContextHost).modelContext as unknown as
+          | LegacyModelContext
+          | undefined);
+  return fromNavigator ? adaptLegacyContext(fromNavigator) : null;
 }
 
 export function isSupported(): boolean {

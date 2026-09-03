@@ -45,6 +45,9 @@ function ViewerLayout({
   const [bottomPanels, setBottomPanels] = useState(panelService.getPanels('bottom'));
   const [leftPanelClosedState, setLeftPanelClosed] = useState(leftPanelClosed);
   const [rightPanelClosedState, setRightPanelClosed] = useState(rightPanelClosed);
+  const hasSubstrateAgentPanel = panelService
+    .getPanels('right')
+    .some(panel => panel.id === '@substrate/extension-substrate.panelModule.agent');
 
   const [
     leftPanelProps,
@@ -64,7 +67,8 @@ function ViewerLayout({
     leftPanelInitialExpandedWidth,
     rightPanelInitialExpandedWidth,
     leftPanelMinimumExpandedWidth,
-    rightPanelMinimumExpandedWidth
+    rightPanelMinimumExpandedWidth,
+    hasSubstrateAgentPanel
   );
 
   const handleMouseEnter = () => {

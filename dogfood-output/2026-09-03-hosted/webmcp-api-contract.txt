@@ -1,0 +1,29 @@
+Target: https://substrate.grayhavenindustries.com/viewer
+Browser API: navigator.modelContext
+Tool: get_context
+
+Standards-shaped invocation:
+  const tool = (await navigator.modelContext.getTools())
+    .find(tool => tool.name === "get_context");
+  typeof tool.inputSchema;
+  await navigator.modelContext.executeTool(tool, {});
+
+Observed:
+  inputSchemaType: "string"
+  UnknownError: Failed to parse input arguments
+
+Stringified invocation:
+  await navigator.modelContext.executeTool(tool, "{}");
+
+Observed:
+  Success; returned the active two-timepoint viewer context.
+
+Current WebMCP IDL:
+  Promise<DOMString> executeTool(
+    RegisteredTool tool,
+    optional object inputObject = {},
+    optional ModelContextExecuteToolOptions options = {}
+  );
+
+Reference:
+  https://webmachinelearning.github.io/webmcp/

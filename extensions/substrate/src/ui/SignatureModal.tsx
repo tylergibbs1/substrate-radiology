@@ -387,8 +387,9 @@ export function SignatureModal({ services }: Props): React.ReactElement | null {
             </div>
 
             <div className="substrate-signature-close">
-              <p className="substrate-signature-attestation">
-                {ATTESTATION}{' '}
+              <p className="substrate-signature-attestation">{ATTESTATION}</p>
+              <label className="substrate-signature-identity">
+                <span>Your name</span>
                 <input
                   ref={signerRef}
                   className="substrate-signature-name"
@@ -397,9 +398,8 @@ export function SignatureModal({ services }: Props): React.ReactElement | null {
                   placeholder="your name"
                   aria-label="Your name"
                   autoComplete="name"
-                  size={Math.max(9, signer.length + 1)}
                 />
-              </p>
+              </label>
               <p
                 className="substrate-signature-consequence"
                 aria-live="polite"
@@ -459,8 +459,9 @@ const signatureCss = `
   outline: 1px solid ${token['ink/low']}; outline-offset: 2px;
 }
 .substrate-signature-sheet {
-  width: min(720px, 100%); max-height: calc(100vh - 48px);
-  padding: ${token['space/card']}; overflow-y: auto;
+  width: 100%; max-width: 720px; min-width: 0;
+  max-height: calc(100vh - 48px);
+  padding: ${token['space/card']}; overflow-x: hidden; overflow-y: auto;
   border: 0; border-radius: ${token['radius/outer']};
   background: ${token['surface/panel']};
 }
@@ -484,16 +485,19 @@ const signatureCss = `
 }
 .substrate-signature-lines { gap: 0; }
 .substrate-signature-line {
-  position: relative; min-width: 0;
-  padding: ${token['space/md']} 116px ${token['space/md']} 0;
+  display: grid; grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: ${token['space/md']}; min-width: 0;
+  padding: ${token['space/md']} 0;
   border-bottom: 1px solid ${token['border/hairline']};
 }
 .substrate-signature-line:last-child { border-bottom: 0; }
 .substrate-signature-sentence {
+  grid-column: 1; min-width: 0; overflow-wrap: anywhere;
   margin: 0; color: ${token['ink/high']};
   font: ${token['text/body']}; letter-spacing: ${token['tracking/body']};
 }
 .substrate-signature-source {
+  grid-column: 1;
   display: flex; min-height: ${token['hit/target']}; align-items: center;
   gap: ${token['space/sm']}; flex-wrap: wrap;
 }
@@ -521,12 +525,12 @@ const signatureCss = `
 }
 .substrate-signature-citation:hover { color: ${token['ink/high']}; }
 .substrate-signature-review {
-  position: absolute; top: ${token['space/sm']}; right: 0;
-  display: flex; gap: ${token['space/xs']};
+  grid-column: 2; grid-row: 1 / span 2;
+  display: flex; align-items: start; gap: ${token['space/xs']};
 }
 .substrate-signature-quiet {
   padding: 0 ${token['space/sm']}; border: 0; background: transparent;
-  color: ${token['ink/low']}; opacity: 0;
+  color: ${token['ink/low']};
 }
 .substrate-signature-source-action {
   padding: 0 ${token['space/sm']};
@@ -537,10 +541,6 @@ const signatureCss = `
 .substrate-signature-source-action.is-selected {
   border-color: ${token['ink/low']}; color: ${token['ink/high']};
 }
-.substrate-signature-line:hover .substrate-signature-review .substrate-signature-quiet,
-.substrate-signature-quiet:focus-visible,
-.substrate-signature-quiet.is-selected,
-.substrate-signature-line.is-out .substrate-signature-quiet { opacity: 1; }
 .substrate-signature-quiet:hover { color: ${token['ink/high']}; }
 .substrate-signature-line.is-out .substrate-signature-sentence {
   color: ${token['ink/low']}; text-decoration: line-through;
@@ -567,12 +567,18 @@ const signatureCss = `
   border-top: 1px solid ${token['border/hairline']};
 }
 .substrate-signature-name {
-  min-width: 120px; max-width: 100%; min-height: 32px;
-  padding: 0 2px; border: 0;
+  width: 100%; min-width: 0; min-height: ${token['hit/target']};
+  padding: 0; border: 0;
   border-bottom: 1px solid ${token['border/hairline']};
   border-radius: 0; background: transparent; color: ${token['ink/high']};
   font: ${token['text/body-large']};
   letter-spacing: ${token['tracking/body-large']};
+}
+.substrate-signature-identity {
+  display: grid; grid-template-columns: 88px minmax(0, 1fr);
+  align-items: center; gap: ${token['space/md']}; min-width: 0;
+  color: ${token['ink/low']}; font: ${token['text/body-small']};
+  letter-spacing: ${token['tracking/body-small']};
 }
 .substrate-signature-name::placeholder { color: ${token['on/disabled']}; }
 .substrate-signature-name:focus {
@@ -620,27 +626,17 @@ const signatureCss = `
   font: ${token['text/body-small']};
   letter-spacing: ${token['tracking/body-small']};
 }
-.substrate-signature-room button:active:not(:disabled) { transform: scale(.96); }
-@media (max-width: 560px) {
-  .substrate-signature-room { padding: ${token['space/md']}; }
-  .substrate-signature-sheet {
-    max-height: calc(100vh - 24px); padding: ${token['space/xl']};
-  }
-  .substrate-signature-line {
-    padding-right: 0; padding-bottom: ${token['space/section']};
-  }
-  .substrate-signature-review {
-    top: auto; right: auto; bottom: ${token['space/xs']}; left: 0;
-  }
-  .substrate-signature-review .substrate-signature-quiet { opacity: 1; }
+@media (max-width: 640px) {
+  .substrate-signature-room { align-items: stretch; padding: ${token['space/md']}; }
+  .substrate-signature-sheet { max-height: calc(100vh - 24px); padding: ${token['space/xl']}; }
+  .substrate-signature-line { grid-template-columns: minmax(0, 1fr); }
+  .substrate-signature-review { grid-column: 1; grid-row: auto; justify-content: flex-start; }
 }
+.substrate-signature-room button:active:not(:disabled) { transform: scale(.96); }
 @media (prefers-reduced-motion: no-preference) {
   .substrate-signature-room button {
     transition: transform ${token['motion/enter']}ms ease-out;
   }
-}
-@media (hover: none) {
-  .substrate-signature-review .substrate-signature-quiet { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .substrate-signature-room button { transition: none; }

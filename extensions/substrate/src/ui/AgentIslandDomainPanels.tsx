@@ -31,12 +31,12 @@ export function PendingConfirmations({
 }: {
   confirmations: ReturnType<typeof autonomy.getPending>;
 }): React.ReactElement | null {
-  if (confirmations.length <= 1) return null;
+  if (confirmations.length === 0) return null;
   return (
     <section style={sectionStyle}>
       <h2 style={panelHeadingStyle}>Waiting for you</h2>
       <ul style={{ ...listResetStyle, display: 'grid' }}>
-        {confirmations.slice(1).map(request => (
+        {confirmations.map(request => (
           <li
             key={request.id}
             style={{
