@@ -1,4 +1,4 @@
-import type { ReviewState } from '../designTokens'
+import type { ReviewState } from '../designTokens';
 
 /**
  * The report, and the signature bound to it.
@@ -14,51 +14,59 @@ import type { ReviewState } from '../designTokens'
  * afterwards and the hash no longer matches, which is what "stale" means here.
  */
 
-export type Provenance = {
-  measurementId: string
-}
+type Provenance = {
+  measurementId: string;
+};
 
-export type Author = { type: 'agent' | 'human'; label: string }
+type Author =
+  | {
+      type: 'agent';
+      label: string;
+      /** Human who remains responsible for this delegated work. */
+      owner: 'active-reader';
+      delegate: 'substrate';
+    }
+  | { type: 'human'; label: string };
 
-export type Reply = {
-  replyId: string
-  author: Author
-  text: string
-  kind: 'edit' | 'question'
-  answeredByPointId?: string
-  ts: number
-}
+type Reply = {
+  replyId: string;
+  author: Author;
+  text: string;
+  kind: 'edit' | 'question';
+  answeredByPointId?: string;
+  ts: number;
+};
 
 export type Sentence = {
-  sentenceId: string
-  section: string
-  text: string
-  author: Author
-  provenance: Provenance[]
-  replacesSentenceId?: string
-  replies: Reply[]
-  review?: ReviewState
-}
+  sentenceId: string;
+  section: string;
+  text: string;
+  author: Author;
+  provenance: Provenance[];
+  replacesSentenceId?: string;
+  replies: Reply[];
+  review?: ReviewState;
+};
 
 export type ReportVersion = {
-  version: number
-  template: string
-  sentences: Sentence[]
-  noteToSigner?: string
-  hash: string
-  createdBy: Author
-  createdAt: number
-}
+  version: number;
+  template: string;
+  sentences: Sentence[];
+  noteToSigner?: string;
+  hash: string;
+  createdBy: Author;
+  createdAt: number;
+};
 
 export type Signature = {
-  version: number
-  hash: string
-  signer: string
-  attestation: string
+  version: number;
+  hash: string;
+  signer: string;
+  attestation: string;
   /** Sentence ids the signer accepted despite having no measurement behind them. */
-  acceptedUnsupported: string[]
-  ts: number
-}
+  acceptedUnsupported: string[];
+  ts: number;
+};
 
 /**
  * RFC 8785-style canonical JSON: object keys sorted, no insignificant
@@ -66,27 +74,27 @@ export type Signature = {
  * deliberately small — the alternative is trusting that two JSON.stringify
  * calls happened to order keys the same way.
  */
-export function canonicalize(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
-  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`
+function canonicalize(value: unknown): string {
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
+  if (Array.isArray(value)) return `[${value.map(canonicalize).join(',')}]`;
   const entries = Object.entries(value as Record<string, unknown>)
     .filter(([, entry]) => entry !== undefined)
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalize(entry)}`).join(',')}}`
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  return `{${entries.map(([key, entry]) => `${JSON.stringify(key)}:${canonicalize(entry)}`).join(',')}}`;
 }
 
 /**
  * Free text is normalized before hashing so a stray double space cannot
  * invalidate a signature, while any change that survives normalization does.
  */
-export function normalizeText(text: string): string {
+function normalizeText(text: string): string {
   return text
     .normalize('NFC')
     .replace(/\r\n?/g, '\n')
     .split('\n')
     .map(line => line.replace(/[ \t]+/g, ' ').trimEnd())
     .join('\n')
-    .trim()
+    .trim();
 }
 
 /** What the signature actually covers. */
@@ -100,56 +108,56 @@ export function packetFor(version: ReportVersion): unknown {
         text: normalizeText(sentence.text),
         cites: sentence.provenance.map(entry => entry.measurementId).sort(),
       })),
-  }
+  };
 }
 
-export async function hashReport(version: ReportVersion): Promise<string> {
-  const bytes = new TextEncoder().encode(canonicalize(packetFor(version)))
-  const digest = await crypto.subtle.digest('SHA-256', bytes)
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('')
+async function hashReport(version: ReportVersion): Promise<string> {
+  const bytes = new TextEncoder().encode(canonicalize(packetFor(version)));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
 /* --------------------------------------------------------------- the store */
 
 type State = {
-  versions: ReportVersion[]
-  signature: Signature | null
-}
+  versions: ReportVersion[];
+  signature: Signature | null;
+};
 
-const state: State = { versions: [], signature: null }
-const listeners = new Set<() => void>()
+const state: State = { versions: [], signature: null };
+const listeners = new Set<() => void>();
 
 export function subscribeReport(listener: () => void): () => void {
-  listeners.add(listener)
-  return () => listeners.delete(listener)
+  listeners.add(listener);
+  return () => listeners.delete(listener);
 }
 
 function announce(): void {
-  for (const listener of listeners) listener()
+  for (const listener of listeners) listener();
 }
 
 export function currentVersion(): ReportVersion | null {
-  return state.versions[state.versions.length - 1] ?? null
+  return state.versions[state.versions.length - 1] ?? null;
 }
 
 export function allVersions(): ReportVersion[] {
-  return state.versions
+  return state.versions;
 }
 
 export function signature(): Signature | null {
-  return state.signature
+  return state.signature;
 }
 
-export type OpenReply = Reply & { sentenceId: string; sentenceText: string }
+type OpenReply = Reply & { sentenceId: string; sentenceText: string };
 
 export function openReplies(): OpenReply[] {
-  const version = currentVersion()
-  if (!version) return []
+  const version = currentVersion();
+  if (!version) return [];
   return version.sentences.flatMap(sentence =>
     sentence.replies
       .filter(reply => !reply.answeredByPointId)
       .map(reply => ({ ...reply, sentenceId: sentence.sentenceId, sentenceText: sentence.text }))
-  )
+  );
 }
 
 export function addReply(
@@ -157,26 +165,26 @@ export function addReply(
   text: string,
   kind: Reply['kind'] = 'question'
 ): Reply | null {
-  const version = currentVersion()
-  const clean = normalizeText(text)
-  if (!version || !clean) return null
-  const index = version.sentences.findIndex(sentence => sentence.sentenceId === sentenceId)
-  if (index < 0) return null
+  const version = currentVersion();
+  const clean = normalizeText(text);
+  if (!version || !clean) return null;
+  const index = version.sentences.findIndex(sentence => sentence.sentenceId === sentenceId);
+  if (index < 0) return null;
   const reply: Reply = {
     replyId: `reply-${Date.now()}`,
     author: { type: 'human', label: 'you' },
     text: clean,
     kind,
     ts: Date.now(),
-  }
-  const sentences = [...version.sentences]
+  };
+  const sentences = [...version.sentences];
   sentences[index] = {
     ...sentences[index],
     replies: [...sentences[index].replies, reply],
-  }
-  state.versions[state.versions.length - 1] = { ...version, sentences }
-  announce()
-  return reply
+  };
+  state.versions[state.versions.length - 1] = { ...version, sentences };
+  announce();
+  return reply;
 }
 
 /**
@@ -185,9 +193,9 @@ export function addReply(
  * product, so export checks this rather than trusting that nothing changed.
  */
 export function signatureIsStale(): boolean {
-  const version = currentVersion()
-  if (!state.signature || !version) return false
-  return state.signature.hash !== version.hash
+  const version = currentVersion();
+  if (!state.signature || !version) return false;
+  return state.signature.hash !== version.hash;
 }
 
 export async function addVersion(
@@ -204,53 +212,58 @@ export async function addVersion(
     hash: '',
     createdBy,
     createdAt: Date.now(),
-  }
-  version.hash = await hashReport(version)
-  state.versions.push(version)
-  announce()
-  return version
+  };
+  version.hash = await hashReport(version);
+  state.versions.push(version);
+  announce();
+  return version;
 }
 
 export async function setSentenceReview(
   sentenceId: string,
   review: Exclude<ReviewState, 'stale'>
 ): Promise<ReportVersion | null> {
-  const version = currentVersion()
-  if (!version) return null
-  const index = version.sentences.findIndex(sentence => sentence.sentenceId === sentenceId)
-  if (index < 0) return null
+  const version = currentVersion();
+  if (!version) return null;
+  const index = version.sentences.findIndex(sentence => sentence.sentenceId === sentenceId);
+  if (index < 0) return null;
   const sentences = version.sentences.map((sentence, sentenceIndex) =>
     sentenceIndex === index ? { ...sentence, review } : sentence
-  )
+  );
   return addVersion(
     version.template,
     sentences,
     { type: 'human', label: 'you' },
     version.noteToSigner
-  )
+  );
 }
 
 export async function restoreVersion(versionNumber: number): Promise<ReportVersion | null> {
-  const source = state.versions.find(version => version.version === versionNumber)
-  if (!source) return null
+  const source = state.versions.find(version => version.version === versionNumber);
+  if (!source) return null;
   const sentences = source.sentences.map(sentence => ({
     ...sentence,
     provenance: sentence.provenance.map(entry => ({ ...entry })),
     replies: sentence.replies.map(reply => ({ ...reply })),
-  }))
+  }));
   return addVersion(
     source.template,
     sentences,
     { type: 'human', label: 'you' },
     source.noteToSigner
-  )
+  );
 }
 
 export async function changeTemplate(template: string): Promise<ReportVersion | null> {
-  const version = currentVersion()
-  const clean = normalizeText(template)
-  if (!version || !clean || clean === version.template) return version
-  return addVersion(clean, version.sentences, { type: 'human', label: 'you' }, version.noteToSigner)
+  const version = currentVersion();
+  const clean = normalizeText(template);
+  if (!version || !clean || clean === version.template) return version;
+  return addVersion(
+    clean,
+    version.sentences,
+    { type: 'human', label: 'you' },
+    version.noteToSigner
+  );
 }
 
 export function sign(
@@ -258,8 +271,8 @@ export function sign(
   attestation: string,
   acceptedUnsupported: string[]
 ): Signature | null {
-  const version = currentVersion()
-  if (!version) return null
+  const version = currentVersion();
+  if (!version) return null;
   state.signature = {
     version: version.version,
     hash: version.hash,
@@ -267,51 +280,51 @@ export function sign(
     attestation,
     acceptedUnsupported,
     ts: Date.now(),
-  }
-  announce()
-  return state.signature
+  };
+  announce();
+  return state.signature;
 }
 
 export function clearReport(): void {
-  state.versions = []
-  state.signature = null
-  announce()
+  state.versions = [];
+  state.signature = null;
+  announce();
 }
 
 /* ------------------------------------------------------ the signature request */
 
-export type SignatureRequest = {
-  requestId: string
-  versionNumber: number
-  summaryForSigner: string
-  status: 'pending' | 'signed' | 'declined'
-}
+type SignatureRequest = {
+  requestId: string;
+  versionNumber: number;
+  summaryForSigner: string;
+  status: 'pending' | 'signed' | 'declined';
+};
 
-let request: SignatureRequest | null = null
+let request: SignatureRequest | null = null;
 
 export function pendingRequest(): SignatureRequest | null {
-  return request
+  return request;
 }
 
 export function requestSignature(summaryForSigner: string): SignatureRequest | null {
-  const version = currentVersion()
-  if (!version) return null
+  const version = currentVersion();
+  if (!version) return null;
   request = {
     requestId: `sig-${version.version}-${Date.now()}`,
     versionNumber: version.version,
     summaryForSigner,
     status: 'pending',
-  }
-  announce()
-  return request
+  };
+  announce();
+  return request;
 }
 
 export function resolveRequest(status: 'signed' | 'declined'): void {
-  if (request) request = { ...request, status }
-  announce()
+  if (request) request = { ...request, status };
+  announce();
 }
 
 export function dismissRequest(): void {
-  request = null
-  announce()
+  request = null;
+  announce();
 }

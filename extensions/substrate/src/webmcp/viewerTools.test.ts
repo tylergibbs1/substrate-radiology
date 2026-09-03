@@ -29,10 +29,39 @@ import {
 Object.defineProperty(globalThis, 'TextEncoder', { configurable: true, value: NodeTextEncoder });
 Object.defineProperty(globalThis, 'crypto', { configurable: true, value: webcrypto });
 
+describe('WebMCP surface', () => {
+  it('keeps the ten public tool names and read/write boundaries stable', () => {
+    const tools = buildViewerTools({
+      servicesManager: { services: {} },
+      commandsManager: { runCommand: jest.fn() },
+      extensionManager: {},
+    });
+
+    expect(tools.map(tool => tool.name)).toEqual([
+      'get_context',
+      'get_study',
+      'list_measurements',
+      'navigate',
+      'set_display',
+      'hang_layout',
+      'propose_measurement',
+      'compare_with_prior',
+      'draft_report',
+      'request_signature',
+    ]);
+    expect(tools.filter(tool => tool.annotations?.readOnlyHint).map(tool => tool.name)).toEqual([
+      'get_context',
+      'get_study',
+      'list_measurements',
+      'compare_with_prior',
+    ]);
+  });
+});
+
 describe('propose_measurement', () => {
   beforeEach(() => {
     for (const request of autonomy.getPending()) autonomy.decide(request.id, 'skip');
-    autonomy.setLevel('auto-prep');
+    autonomy.setLevel('full-prep');
     autonomy.setStandingInstructions([]);
     jest.clearAllMocks();
   });
@@ -157,7 +186,7 @@ describe('propose_measurement', () => {
 
 describe('study inventory', () => {
   beforeEach(() => {
-    autonomy.setLevel('auto-prep');
+    autonomy.setLevel('full-prep');
     jest.clearAllMocks();
   });
 
@@ -222,7 +251,7 @@ describe('study inventory', () => {
 
 describe('viewer undo', () => {
   beforeEach(() => {
-    autonomy.setLevel('auto-prep');
+    autonomy.setLevel('full-prep');
     jest.clearAllMocks();
   });
 
@@ -383,6 +412,10 @@ describe('viewer undo', () => {
 
     await expect(result).resolves.toEqual(expect.objectContaining({ code: 'STOPPED' }));
     expect(runCommand).not.toHaveBeenCalled();
+    const failed = presence.getLast();
+    expect(failed?.finishedAt).toBeDefined();
+    expect(presence.getSessionState(false, (failed?.finishedAt ?? 0) + 1999)).toBe('idle');
+    expect(presence.getSessionState(false, (failed?.finishedAt ?? 0) + 2000)).toBe('error');
   });
 });
 
@@ -418,7 +451,7 @@ describe('get_context autonomy', () => {
       })
     );
 
-    autonomy.setLevel('auto-prep');
+    autonomy.setLevel('full-prep');
     autonomy.setStandingInstructions([]);
   });
 });
@@ -426,7 +459,7 @@ describe('get_context autonomy', () => {
 describe('report replies', () => {
   beforeEach(() => {
     clearReport();
-    autonomy.setLevel('auto-prep');
+    autonomy.setLevel('full-prep');
   });
 
   it('revises only the replied-to sentence and closes that reply', async () => {
@@ -437,7 +470,12 @@ describe('report replies', () => {
           sentenceId: 'sentence-1',
           section: 'Findings',
           text: 'Target 1 is unchanged.',
-          author: { type: 'agent', label: 'your agent' },
+          author: {
+            type: 'agent',
+            label: 'your agent',
+            owner: 'active-reader',
+            delegate: 'substrate',
+          },
           provenance: [],
           replies: [],
         },
@@ -445,12 +483,22 @@ describe('report replies', () => {
           sentenceId: 'sentence-2',
           section: 'Impression',
           text: 'No interval change.',
-          author: { type: 'agent', label: 'your agent' },
+          author: {
+            type: 'agent',
+            label: 'your agent',
+            owner: 'active-reader',
+            delegate: 'substrate',
+          },
           provenance: [],
           replies: [],
         },
       ],
-      { type: 'agent', label: 'your agent' }
+      {
+        type: 'agent',
+        label: 'your agent',
+        owner: 'active-reader',
+        delegate: 'substrate',
+      }
     );
     const reply = addReply('sentence-1', 'That is the wrong lesion for target 1.', 'edit');
     const tools = buildViewerTools({
@@ -505,7 +553,12 @@ describe('report replies', () => {
           sentenceId: 'keep',
           section: 'Findings',
           text: 'Keep this sentence.',
-          author: { type: 'agent', label: 'your agent' },
+          author: {
+            type: 'agent',
+            label: 'your agent',
+            owner: 'active-reader',
+            delegate: 'substrate',
+          },
           provenance: [],
           replies: [],
           review: 'unreviewed',
@@ -514,13 +567,23 @@ describe('report replies', () => {
           sentenceId: 'remove',
           section: 'Findings',
           text: 'Reject this sentence.',
-          author: { type: 'agent', label: 'your agent' },
+          author: {
+            type: 'agent',
+            label: 'your agent',
+            owner: 'active-reader',
+            delegate: 'substrate',
+          },
           provenance: [],
           replies: [],
           review: 'unreviewed',
         },
       ],
-      { type: 'agent', label: 'your agent' }
+      {
+        type: 'agent',
+        label: 'your agent',
+        owner: 'active-reader',
+        delegate: 'substrate',
+      }
     );
     await setSentenceReview('keep', 'accepted');
     const beforeReject = currentVersion()?.version ?? 0;

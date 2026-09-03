@@ -1,111 +1,67 @@
-import React, { forwardRef, useEffect, useState, type HTMLAttributes } from 'react'
+import React, { forwardRef, type HTMLAttributes } from 'react';
 
-import { token } from '../designTokens'
+import { token } from '../designTokens';
 
-const CIRCLE =
-  'M 12 8 C 14.21 8 16 9.79 16 12 C 16 14.21 14.21 16 12 16 C 9.79 16 8 14.21 8 12 C 8 9.79 9.79 8 12 8 Z'
-const LOOP = token['agent/mark']
-const WORDS = ['Working', 'Planning', 'Refining']
-
-type Size = 'default' | 'compact'
+type Size = 'default' | 'compact';
 
 export interface ThinkingIndicatorProps extends HTMLAttributes<HTMLDivElement> {
-  size?: Size
-  showIcon?: boolean
+  size?: Size;
+  showIcon?: boolean;
 }
 
-function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-
-  useEffect(() => {
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const update = () => setReduced(media.matches)
-    update()
-    media.addEventListener?.('change', update)
-    return () => media.removeEventListener?.('change', update)
-  }, [])
-
-  return reduced
-}
-
-export function AgentMark({ size = 14 }: { size?: number }): React.ReactElement {
+/** The agent's entire identity: one static 6 px signal lamp. */
+export function AgentMark({
+  filled = true,
+  error = false,
+}: {
+  size?: number;
+  filled?: boolean;
+  error?: boolean;
+}): React.ReactElement {
   return (
-    <svg
+    <span
       aria-hidden="true"
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="1.5"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      style={{ display: 'block', flex: 'none' }}
-    >
-      <path d={LOOP} />
-    </svg>
-  )
+      style={{
+        boxSizing: 'border-box',
+        display: 'inline-block',
+        width: token['agent/lamp-size'],
+        height: token['agent/lamp-size'],
+        flex: 'none',
+        border: filled || error ? 0 : `1px solid ${token['agent/stroke']}`,
+        borderRadius: error ? token['radius/none'] : token['radius/full'],
+        background: error ? token['status/error'] : filled ? token['agent/mark'] : 'transparent',
+      }}
+    />
+  );
 }
 
+/** Working uses terse shimmer copy; viewport writes still own the presence pulse. */
 export const ThinkingIndicator = forwardRef<HTMLDivElement, ThinkingIndicatorProps>(
-  ({ size = 'default', showIcon = true, style, ...props }, ref) => {
-    const reducedMotion = useReducedMotion()
-    const [index, setIndex] = useState(0)
-    const compact = size === 'compact'
-
-    useEffect(() => {
-      if (reducedMotion) return
-      const interval = window.setInterval(() => {
-        setIndex(current => (current + 1) % WORDS.length)
-      }, 2400)
-      return () => window.clearInterval(interval)
-    }, [reducedMotion])
-
-    return (
-      <div
-        ref={ref}
-        role="status"
-        aria-label="Working"
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: compact ? 6 : 8,
-          color: 'inherit',
-          fontSize: compact ? 12 : 13,
-          whiteSpace: 'nowrap',
-          ...style,
-        }}
-        {...props}
+  ({ size: _size = 'default', showIcon = true, style, ...props }, ref) => (
+    <div
+      ref={ref}
+      role="status"
+      aria-label="Working"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: token['space/sm'],
+        color: token['ink/high'],
+        font: token['text/ui'],
+        whiteSpace: 'nowrap',
+        ...style,
+      }}
+      {...props}
+    >
+      {showIcon ? <AgentMark /> : null}
+      <span
+        aria-hidden="true"
+        className="substrate-thinking-label"
       >
-        {showIcon ? (
-          <svg
-            aria-hidden="true"
-            width={compact ? 16 : 18}
-            height={compact ? 16 : 18}
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.5"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ display: 'block', flex: 'none' }}
-          >
-            <path d={reducedMotion ? LOOP : CIRCLE}>
-              {!reducedMotion ? (
-                <animate
-                  attributeName="d"
-                  values={`${CIRCLE};${LOOP};${CIRCLE}`}
-                  dur="3s"
-                  repeatCount="indefinite"
-                />
-              ) : null}
-            </path>
-          </svg>
-        ) : null}
-        <span aria-hidden="true">{reducedMotion ? WORDS[0] : WORDS[index]}</span>
-      </div>
-    )
-  }
-)
+        Working
+      </span>
+    </div>
+  )
+);
 
-ThinkingIndicator.displayName = 'ThinkingIndicator'
+ThinkingIndicator.displayName = 'ThinkingIndicator';

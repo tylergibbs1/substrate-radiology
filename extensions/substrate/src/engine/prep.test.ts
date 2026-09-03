@@ -15,7 +15,7 @@ function tool(
 }
 
 describe('Full prep', () => {
-  afterEach(() => autonomy.setLevel('auto-prep'));
+  afterEach(() => autonomy.setLevel('full-prep'));
 
   it('hangs, presets, proposes, compares, and drafts without an agent', async () => {
     autonomy.setLevel('full-prep');
@@ -92,7 +92,69 @@ describe('Full prep', () => {
     );
   });
 
-  it('does nothing outside Full prep', async () => {
+  it('stops after comparison when the prior has no labeled measurements', async () => {
+    const calls: string[] = [];
+    const record = (name: string, result: JsonValue) =>
+      tool(name, () => {
+        calls.push(name);
+        return result;
+      });
+    const tools = [
+      record('get_context', {
+        study_uid: 'current',
+        active_viewport: 'viewport-current',
+        panes: [{ viewport: 'viewport-current', series_uid: 'series-current' }],
+      }),
+      record('get_study', {
+        studies: [
+          {
+            study_uid: 'current',
+            study_date: '20260101',
+            series: [{ series_uid: 'series-current', image_count: 160 }],
+          },
+          {
+            study_uid: 'prior',
+            study_date: '20250101',
+            series: [{ series_uid: 'series-prior', image_count: 150 }],
+          },
+        ],
+      }),
+      record('hang_layout', {
+        panes: [
+          { viewport: 'viewport-current', series_uid: 'series-current' },
+          { viewport: 'viewport-prior', series_uid: 'series-prior' },
+        ],
+      }),
+      record('set_display', { applied: ['lung window'] }),
+      record('list_measurements', {
+        measurements: [
+          {
+            measurement_id: 'measurement-prior-unlabeled',
+            study_uid: 'prior',
+            label: '',
+            proposed: false,
+          },
+        ],
+      }),
+      record('compare_with_prior', { compared: [] }),
+      record('draft_report', { version: 1 }),
+    ];
+
+    await expect(runFullPrep(tools, new AbortController().signal, 0)).resolves.toEqual({
+      status: 'done',
+      studyUid: 'current',
+      steps: [
+        'Hung current and prior',
+        'Applied lung window',
+        'Proposed 0 labeled measurements',
+        'Compared available measurements',
+      ],
+    });
+    expect(calls).toContain('compare_with_prior');
+    expect(calls).not.toContain('draft_report');
+  });
+
+  it('does nothing when viewer changes require confirmation', async () => {
     autonomy.setLevel('assist');
     const execute = jest.fn();
 

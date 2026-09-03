@@ -2,7 +2,7 @@ import { autonomy } from './autonomy';
 import type { JsonObject, JsonValue, WebMcpTool } from '../webmcp/spec';
 import { timing } from './timing';
 
-export type PrepResult = {
+type PrepResult = {
   status: 'skipped' | 'done' | 'incomplete' | 'cancelled';
   studyUid?: string;
   steps: string[];
@@ -173,19 +173,16 @@ async function performFullPrep(
   await call('compare_with_prior');
   steps.push('Compared available measurements');
 
-  const sentences = labeledPrior.length
-    ? labeledPrior.map(source => ({
-        section: 'Findings',
-        text: `${String(source.label)}: prior measurement ${String(source.value || 'recorded')}; current measurement awaits review.`,
-        cites: [String(source.measurement_id)],
-      }))
-    : [
-        {
-          section: 'Findings',
-          text: 'No labeled prior measurements were available for comparison.',
-          cites: [],
-        },
-      ];
+  if (labeledPrior.length === 0) {
+    timing.stop();
+    return { status: 'done', studyUid: currentStudyUid, steps };
+  }
+
+  const sentences = labeledPrior.map(source => ({
+    section: 'Findings',
+    text: `${String(source.label)}: prior measurement ${String(source.value || 'recorded')}; current measurement awaits review.`,
+    cites: [String(source.measurement_id)],
+  }));
   const draft = await call('draft_report', {
     template: 'chest CT, longitudinal',
     sentences,

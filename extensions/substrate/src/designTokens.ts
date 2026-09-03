@@ -1,22 +1,26 @@
-/** Decisions shared by Substrate's UI, code reviews, agents and demo script. */
+/** Canonical alpha decisions shared by Substrate's UI, reviews, agents, and demo. */
 export const token = {
-  'agent/mark':
-    'M 12 12 C 14 8.5 19 8.5 19 12 C 19 15.5 14 15.5 12 12 C 10 8.5 5 8.5 5 12 C 5 15.5 10 15.5 12 12 Z',
-  'agent/accent': '#62cfc3',
+  'agent/mark': '#8b76ff',
+  'agent/stroke': '#6d52ff',
+  'on/signal': '#ffffff',
+  'agent/lamp-size': '6px',
+  'agent/ring-width': '2px',
 
-  'action/primary': '#f54e00',
-  'action/primary-hover': '#ff5a0d',
-  'action/primary-press': '#d04200',
-  'on/primary': '#ffffff',
+  'action/primary': '#ffffff',
+  'action/primary-hover': '#d8d8d8',
+  'action/primary-press': '#ffffff',
+  'on/primary': '#1c1c1c',
+  'action/disabled': '#2a2a2a',
+  'on/disabled': '#7b7b7b',
 
-  'state/proposed': '#d6a84b',
-  'state/confirmed': '#d0d6e0',
+  'state/proposed': '#6d52ff',
+  'state/confirmed': '#d8d8d8',
   'state/unaligned': '#eb5757',
 
-  'review/unreviewed': '#d6a84b',
-  'review/accepted': '#75b985',
-  'review/rejected': '#eb5757',
-  'review/stale': '#d6a84b',
+  'review/unreviewed': '#8b76ff',
+  'review/accepted': '#d8d8d8',
+  'review/rejected': '#7b7b7b',
+  'review/stale': '#eb5757',
 
   'session/idle': 'Idle',
   'session/working': 'Working',
@@ -24,30 +28,70 @@ export const token = {
   'session/done': 'Done',
   'session/error': 'Error',
 
-  'autonomy/assist': 'Assist',
-  'autonomy/auto-prep': 'Auto-prep',
+  'autonomy/assist': 'Ask before changes',
   'autonomy/full-prep': 'Full prep',
 
-  'surface/room': '#08090a',
-  'surface/panel': '#0f1011',
-  'border/hairline': '#23252a',
+  'surface/room': '#000000',
+  'surface/bed': '#0b0b0e',
+  'surface/panel': '#1c1c1c',
+  'surface/inset': '#2a2a2a',
+  'surface/raised': '#383838',
+  'system/bench': 'bench',
+  'system/plate': 'plate',
+  // A rule on surface/card is the next surface step, never a fixed grey.
+  'border/hairline': '#2a2a2a',
+  'status/error': '#eb5757',
 
-  'ink/high': '#f7f7f4',
-  'ink/mid': '#d0d6e0',
-  'ink/low': '#8a8f98',
-  'ink/dim': '#62666d',
+  'ink/high': '#ffffff',
+  'ink/mid': '#ffffff',
+  'ink/low': '#d8d8d8',
 
   'motion/enter': 150,
-  'motion/exit': 100,
-  'motion/presence': 1250,
+  'motion/hold': 600,
+  'motion/exit': 400,
+  'motion/presence': 1150,
+  'motion/shimmer': 1600,
+  'motion/error-hold': 2000,
 
-  'text/ui': '12.5px',
-  'text/measure': '500 12px/1.35 ui-monospace, SFMono-Regular, Menlo, monospace',
+  'text/headline': '400 24px/1.2 "Inter Tight", Inter, sans-serif',
+  'text/body-large': '400 22px/1.4 "Inter Tight", Inter, sans-serif',
+  'text/body': '400 18px/1.3 "Inter Tight", Inter, sans-serif',
+  'text/body-small': '400 16px/1.4 "Inter Tight", Inter, sans-serif',
+  'text/ui': '400 13px/1.45 "Inter Tight", Inter, sans-serif',
+  'text/measure': '400 13px/1.23 "Geist Mono", ui-monospace, Menlo, monospace',
+  'tracking/headline': '-0.14px',
+  'tracking/body-large': '-0.13px',
+  'tracking/body': '-0.018px',
+  'tracking/body-small': '-0.016px',
+  'tracking/data': '-0.26px',
+  'feature/tabular': '"tnum" 1',
+  'wrap/heading': 'balance',
+  'wrap/body': 'pretty',
+  'lane/history-time': '8ch',
+  'hit/target': '44px',
+  'icon/disclosure-size': '7px',
+
+  'radius/none': '0px',
+  'radius/inner': '8px',
+  'radius/outer': '20px',
+  'radius/full': '9999px',
+
+  'space/xs': '4px',
+  'space/sm': '8px',
+  'space/md': '12px',
+  'space/base': '16px',
+  'space/lg': '20px',
+  'space/xl': '24px',
+  'space/card': '40px',
+  'space/section': '48px',
+  'space/room': '80px',
 } as const;
 
 export type SessionState = 'idle' | 'working' | 'waiting-for-you' | 'done' | 'error';
-export type AutonomyLevel = 'assist' | 'auto-prep' | 'full-prep';
+export type AutonomyLevel = 'assist' | 'full-prep';
 export type ReviewState = 'unreviewed' | 'accepted' | 'rejected' | 'stale';
+export type SurfaceSystem = 'bench' | 'plate';
+export type SurfaceElevation = 'flush' | 'raised';
 
 export function sessionLabel(state: SessionState): string {
   return token[`session/${state}`];

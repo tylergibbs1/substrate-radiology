@@ -1,5 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 
+import { token } from '../designTokens';
 import { exportDicomSr, exportPdf } from '../engine/exportReport';
 import {
   currentVersion,
@@ -13,34 +14,42 @@ import {
   subscribeReport,
   type Sentence,
 } from '../engine/report';
-import { token } from '../designTokens';
-import { AgentMark } from './ThinkingIndicator';
 
-/**
- * The signature.
- *
- * Everything else in Substrate exists to make this moment honest. The
- * radiologist sees the report as it will read and reviews unsupported sentences
- * in place. One short attestation preserves accountability without repeating
- * the report or explaining the interaction.
- *
- * Nothing else in the product can create a signature. No tool can; the agent's
- * request only opens this dialog. The signature binds to the report's hash, so
- * an edit afterwards makes it stale and the export says so.
- */
-
+/** The exact report packet and the only identity that can sign it: the reader's. */
 const ATTESTATION = 'I reviewed this report and take responsibility for it.';
 
-type Props = {
-  services: Record<string, unknown>;
+type Props = { services: Record<string, unknown> };
+type Measurement = { label: string; value: string };
+type MeasurementService = {
+  getMeasurement?: (
+    uid: string
+  ) => { label?: string; displayText?: string | { primary?: string[] } } | undefined;
+  jumpToMeasurement?: (viewportId: string, uid: string) => void;
 };
+type ViewportGridService = {
+  getState?: () => { activeViewportId?: string };
+};
+
+function AgentLamp({ supported }: { supported: boolean }): React.ReactElement {
+  return (
+    <span
+      className={supported ? 'substrate-signature-lamp' : 'substrate-signature-lamp is-hollow'}
+      aria-label={
+        supported ? 'Suggested with measurement evidence' : 'Suggested without measurement evidence'
+      }
+      role="img"
+    />
+  );
+}
 
 export function SignatureModal({ services }: Props): React.ReactElement | null {
   const [, tick] = useState(0);
   const [signer, setSigner] = useState('');
-  const [accepted, setAccepted] = useState<Set<string>>(new Set());
-  const [attested, setAttested] = useState(false);
+  const [acceptedUnsupported, setAcceptedUnsupported] = useState<Set<string>>(new Set());
   const [exportError, setExportError] = useState('');
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const signerRef = useRef<HTMLInputElement>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => subscribeReport(() => tick(value => value + 1)), []);
 
@@ -52,24 +61,50 @@ export function SignatureModal({ services }: Props): React.ReactElement | null {
 
   useEffect(() => {
     setSigner('');
-    setAccepted(new Set());
-    setAttested(false);
+    setAcceptedUnsupported(new Set());
     setExportError('');
-  }, [version?.version]);
+  }, [request?.requestId]);
 
-  // Escape declines rather than silently dismissing: closing a signature
-  // request without an answer would leave the agent polling forever.
   useEffect(() => {
     if (!open) return;
-    const onKey = (event: KeyboardEvent) => {
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const frame = window.requestAnimationFrame(() => {
+      (isSigned ? closeRef.current : signerRef.current)?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      previous?.focus();
+    };
+  }, [isSigned, open]);
+
+  // Escape answers a pending request; Tab never leaves the signing sheet.
+  useEffect(() => {
+    if (!open) return;
+    const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        resolveRequest('declined');
+        event.preventDefault();
+        if (!isSigned) resolveRequest('declined');
         dismissRequest();
+        return;
+      }
+      if (event.key !== 'Tab') return;
+      const focusable = sheetRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable?.length) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [open]);
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isSigned, open]);
 
   const unsupported = useMemo(
     () =>
@@ -78,456 +113,536 @@ export function SignatureModal({ services }: Props): React.ReactElement | null {
       ),
     [version]
   );
+
   if (!open || !version) return null;
 
-  const blockers: string[] = [];
-  if (!signer.trim()) blockers.push('Your name is needed on the report.');
-  if (!attested) blockers.push('Review the report before signing.');
-  const unaccepted = unsupported.filter(s => !accepted.has(s.sentenceId));
-  if (unaccepted.length > 0) {
-    blockers.push(
-      `${unaccepted.length} uncited ${unaccepted.length === 1 ? 'sentence needs' : 'sentences need'} review.`
-    );
-  }
-  const unreviewed = version.sentences.filter(
-    sentence => sentence.review !== 'accepted' && sentence.review !== 'rejected'
-  );
-  if (unreviewed.length > 0) {
-    blockers.push(
-      `${unreviewed.length} suggested ${unreviewed.length === 1 ? 'sentence needs' : 'sentences need'} review.`
-    );
-  }
+  const activeSentences = version.sentences.filter(sentence => sentence.review !== 'rejected');
+  const unreviewed = activeSentences.filter(sentence => sentence.review !== 'accepted');
+  const unaccepted = unsupported.filter(sentence => !acceptedUnsupported.has(sentence.sentenceId));
+  const canSign = Boolean(signer.trim()) && unreviewed.length === 0 && unaccepted.length === 0;
 
-  const measurementService = services.measurementService as
-    | { getMeasurement?: (uid: string) => { label?: string; displayText?: unknown } | undefined }
-    | undefined;
+  const measurementService = services.measurementService as MeasurementService | undefined;
+  const viewportGridService = services.viewportGridService as ViewportGridService | undefined;
 
-  const valueOf = (measurementId: string): string => {
+  const measurementOf = (measurementId: string): Measurement => {
     const found = measurementService?.getMeasurement?.(measurementId);
-    const display = found?.displayText as { primary?: string[] } | undefined;
-    const label = found?.label ? `${found.label}: ` : '';
-    return `${label}${display?.primary?.join(' ') ?? 'no value yet'}`;
+    const display = found?.displayText;
+    const value =
+      typeof display === 'string'
+        ? display
+        : Array.isArray(display?.primary)
+          ? display.primary.join(' ')
+          : 'Value unavailable';
+    return { label: found?.label || measurementId, value };
   };
 
-  const bySection = new Map<string, Sentence[]>();
-  for (const sentence of version.sentences.filter(row => row.review !== 'rejected')) {
-    const rows = bySection.get(sentence.section) ?? [];
-    rows.push(sentence);
-    bySection.set(sentence.section, rows);
-  }
+  const showMeasurement = (measurementId: string) => {
+    const viewportId = viewportGridService?.getState?.().activeViewportId;
+    if (viewportId) measurementService?.jumpToMeasurement?.(viewportId, measurementId);
+  };
 
-  const surface: React.CSSProperties = {
-    background: token['surface/panel'],
-    border: `1px solid ${token['border/hairline']}`,
-    color: '#d0d6e0',
-    fontSize: token['text/ui'],
-    fontFamily:
-      'Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    fontFeatureSettings: '"cv01" 1, "ss03" 1, "zero" 1',
+  const measurementIds = [
+    ...new Set(
+      activeSentences.flatMap(sentence => sentence.provenance.map(item => item.measurementId))
+    ),
+  ];
+  const sections = [...new Set(version.sentences.map(sentence => sentence.section))];
+  const reportSentences = (section: string): Sentence[] =>
+    version.sentences.filter(
+      sentence => sentence.section === section && (!isSigned || sentence.review !== 'rejected')
+    );
+
+  const leaveOut = (sentence: Sentence) => {
+    setAcceptedUnsupported(previous => {
+      const next = new Set(previous);
+      next.delete(sentence.sentenceId);
+      return next;
+    });
+    void setSentenceReview(sentence.sentenceId, 'rejected');
+  };
+
+  const toggleUnsupported = (sentenceId: string) => {
+    setAcceptedUnsupported(previous => {
+      const next = new Set(previous);
+      if (next.has(sentenceId)) next.delete(sentenceId);
+      else next.add(sentenceId);
+      return next;
+    });
+  };
+
+  const exportWith = (format: 'sr' | 'pdf') => {
+    try {
+      setExportError('');
+      if (format === 'sr') exportDicomSr(services);
+      else exportPdf(services);
+    } catch (error) {
+      setExportError(
+        error instanceof Error
+          ? error.message
+          : format === 'sr'
+            ? 'Could not create SR.'
+            : 'Could not create PDF.'
+      );
+    }
   };
 
   return (
     <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="Sign the report"
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 1100,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: 'rgba(0,0,0,0.55)',
-        padding: 24,
-      }}
+      className="substrate-signature-room"
+      data-substrate-system={token['system/plate']}
     >
+      <style>{signatureCss}</style>
       <div
-        style={{
-          ...surface,
-          borderRadius: 12,
-          width: 'min(680px, 100%)',
-          maxHeight: 'min(84vh, 900px)',
-          display: 'flex',
-          flexDirection: 'column',
-          boxShadow: '0 4px 32px rgba(8,9,10,0.6)',
-        }}
+        ref={sheetRef}
+        className="substrate-signature-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="substrate-signature-title"
       >
-        {/* Header stays put; only the body scrolls, so the question never
-            scrolls away from the answer. */}
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
-          <h2 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>
-            {isSigned ? 'Signed report' : 'Sign this report?'}
-          </h2>
-          {!isSigned && request?.summaryForSigner ? (
-            <p
-              title={request.summaryForSigner}
-              style={{
-                margin: '4px 0 0',
-                overflow: 'hidden',
-                fontSize: 11.5,
-                opacity: 0.55,
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              {request.summaryForSigner}
-            </p>
-          ) : null}
-        </div>
+        <h1
+          id="substrate-signature-title"
+          className="substrate-signature-visually-hidden"
+        >
+          {isSigned ? 'Signed report' : 'Sign the report'}
+        </h1>
 
-        <div style={{ overflowY: 'auto', padding: '12px 20px', flex: 1 }}>
-          {[...bySection.entries()].map(([section, rows]) => (
-            <section
-              key={section}
-              style={{ marginBottom: 18 }}
-            >
-              <h3 style={{ margin: '0 0 8px', fontSize: 12, opacity: 0.55, fontWeight: 500 }}>
-                {section}
-              </h3>
-              <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
-                {rows.map(sentence => {
-                  const isUnsupported = sentence.provenance.length === 0;
-                  const isSuggested =
-                    sentence.review !== 'accepted' && sentence.review !== 'rejected';
-                  return (
-                    <li
-                      key={sentence.sentenceId}
-                      style={{
-                        padding: '8px 0',
-                        borderBottom: '1px solid rgba(255,255,255,0.06)',
-                      }}
-                    >
-                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 9 }}>
-                        {!isSigned && isUnsupported && !isSuggested ? (
-                          <input
-                            type="checkbox"
-                            aria-label={`Accept uncited sentence: ${sentence.text}`}
-                            checked={accepted.has(sentence.sentenceId)}
-                            onChange={event =>
-                              setAccepted(previous => {
-                                const next = new Set(previous);
-                                if (event.target.checked) next.add(sentence.sentenceId);
-                                else next.delete(sentence.sentenceId);
-                                return next;
-                              })
-                            }
-                            style={{ margin: '3px 0 0', flex: 'none' }}
-                          />
-                        ) : null}
-                        <p style={{ margin: 0, fontSize: 14, lineHeight: 1.5 }}>{sentence.text}</p>
-                      </div>
-                      <div
-                        style={{
-                          display: 'flex',
-                          flexWrap: 'wrap',
-                          gap: 6,
-                          alignItems: 'center',
-                          marginTop: 4,
-                          marginLeft: !isSigned && isUnsupported && !isSuggested ? 24 : 0,
-                        }}
-                      >
-                        <span
-                          style={{
-                            display: 'inline-flex',
-                            alignItems: 'center',
-                            gap: 4,
-                            fontSize: 11.5,
-                            opacity: 0.5,
-                          }}
-                        >
-                          {sentence.author.type === 'agent' ? <AgentMark size={11} /> : null}
-                          {sentence.author.type === 'agent' ? 'Agent' : 'You'}
-                        </span>
-                        {sentence.provenance.map(entry => (
-                          <span
-                            key={entry.measurementId}
-                            style={{
-                              fontSize: 11.5,
-                              padding: '2px 8px',
-                              borderRadius: 4,
-                              border: '1px solid rgba(255,255,255,0.18)',
-                              opacity: 0.85,
-                            }}
-                          >
-                            {valueOf(entry.measurementId)}
-                          </span>
-                        ))}
-                        {isUnsupported ? (
-                          <span style={{ fontSize: 11.5, color: '#d0d6e0' }}>Uncited</span>
-                        ) : null}
-                        {!isSigned && isSuggested ? (
-                          <span
-                            style={{ display: 'flex', gap: 6, marginLeft: 'auto' }}
-                            aria-label="Review suggested sentence"
-                          >
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void setSentenceReview(sentence.sentenceId, 'rejected')
-                              }
-                              style={{
-                                minHeight: 40,
-                                padding: '0 10px',
-                                color: token['ink/low'],
-                                background: 'transparent',
-                                border: 0,
-                                borderRadius: 6,
-                                font: 'inherit',
-                                fontSize: 11.5,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Remove
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() =>
-                                void setSentenceReview(sentence.sentenceId, 'accepted')
-                              }
-                              style={{
-                                minHeight: 40,
-                                padding: '0 12px',
-                                color: token['on/primary'],
-                                background: token['action/primary'],
-                                border: 0,
-                                borderRadius: 6,
-                                font: 'inherit',
-                                fontSize: 11.5,
-                                fontWeight: 510,
-                                cursor: 'pointer',
-                              }}
-                            >
-                              Keep
-                            </button>
-                          </span>
-                        ) : !isSigned ? (
-                          <span
-                            style={{ marginLeft: 'auto', color: token['ink/low'], fontSize: 11.5 }}
-                          >
-                            Kept
-                          </span>
-                        ) : null}
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </section>
-          ))}
-        </div>
-
-        {/* Signature and export remain human-only. */}
         {isSigned && signed ? (
-          <div
-            style={{
-              borderTop: '1px solid rgba(255,255,255,0.1)',
-              padding: '14px 22px',
-            }}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <strong style={{ fontSize: 13, fontWeight: 600 }}>Signed by {signed.signer}</strong>
-              <span style={{ fontSize: 11.5, opacity: 0.5 }}>
-                {new Date(signed.ts).toLocaleString()}
-              </span>
+          <div className="substrate-signature-receipt">
+            <p className="substrate-signature-attestation">
+              {ATTESTATION} <span className="substrate-signature-name-set">{signed.signer}</span>
+            </p>
+            <div className="substrate-signature-meta">
+              <span>{new Date(signed.ts).toLocaleString()}</span>
+              <span>SHA-256 {signed.hash}</span>
             </div>
             {signatureIsStale() ? (
               <p
-                style={{
-                  margin: '8px 0 0',
-                  color: token['review/stale'],
-                  fontSize: 12.5,
-                }}
+                className="substrate-signature-error"
+                role="alert"
               >
-                This signature is stale. Both exports will say that the report changed after
-                signing.
+                The report changed after signing. Both exports will be marked stale.
               </p>
             ) : null}
-            <p style={{ margin: '8px 0 0', font: token['text/measure'], opacity: 0.45 }}>
-              SHA-256 {signed.hash}
-            </p>
             {exportError ? (
               <p
+                className="substrate-signature-error"
                 role="alert"
-                style={{ margin: '8px 0 0', fontSize: 12, color: '#fca5a5' }}
               >
                 {exportError}
               </p>
             ) : null}
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'flex-end',
-                gap: 8,
-                marginTop: 12,
-              }}
-            >
+            <div className="substrate-signature-actions">
               <button
+                ref={closeRef}
                 type="button"
+                className="substrate-signature-ghost"
                 onClick={() => dismissRequest()}
-                style={{
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'rgba(255,255,255,0.6)',
-                  font: 'inherit',
-                  fontSize: 13,
-                  padding: '7px 10px',
-                  cursor: 'pointer',
-                }}
               >
-                Done
+                Close
+              </button>
+              <span className="substrate-signature-action-space" />
+              <button
+                type="button"
+                className="substrate-signature-ghost"
+                onClick={() => exportWith('sr')}
+              >
+                Save SR
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  try {
-                    setExportError('');
-                    exportDicomSr(services);
-                  } catch (error) {
-                    setExportError(error instanceof Error ? error.message : 'Could not create SR.');
-                  }
-                }}
-                style={{
-                  background: 'rgba(255,255,255,0.08)',
-                  border: '1px solid rgba(255,255,255,0.18)',
-                  borderRadius: 6,
-                  color: 'inherit',
-                  font: 'inherit',
-                  fontSize: 13,
-                  padding: '8px 14px',
-                  cursor: 'pointer',
-                }}
+                className="substrate-signature-ghost"
+                onClick={() => exportWith('pdf')}
               >
-                Export DICOM SR
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  try {
-                    setExportError('');
-                    exportPdf(services);
-                  } catch (error) {
-                    setExportError(
-                      error instanceof Error ? error.message : 'Could not create PDF.'
-                    );
-                  }
-                }}
-                style={{
-                  background: token['action/primary'],
-                  border: 'none',
-                  borderRadius: 6,
-                  color: token['on/primary'],
-                  font: 'inherit',
-                  fontSize: 13,
-                  fontWeight: 600,
-                  padding: '8px 16px',
-                  cursor: 'pointer',
-                }}
-              >
-                Export PDF
+                Save PDF
               </button>
             </div>
           </div>
         ) : (
-          <div style={{ borderTop: '1px solid rgba(255,255,255,0.1)', padding: '12px 20px' }}>
-            <label
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 8,
-                marginBottom: 12,
-                fontSize: 12.5,
-                cursor: 'pointer',
-              }}
-            >
-              <input
-                type="checkbox"
-                checked={attested}
-                onChange={event => setAttested(event.target.checked)}
-              />
-              <span style={{ opacity: 0.8 }}>{ATTESTATION}</span>
-            </label>
+          <>
+            {measurementIds.length > 0 ? (
+              <table
+                className="substrate-signature-evidence"
+                aria-label="Measurement evidence"
+              >
+                <tbody>
+                  {measurementIds.map(measurementId => {
+                    const measurement = measurementOf(measurementId);
+                    return (
+                      <tr key={measurementId}>
+                        <td>{measurement.label}</td>
+                        <td>{measurement.value}</td>
+                        <td>
+                          <button
+                            type="button"
+                            className="substrate-signature-citation"
+                            onClick={() => showMeasurement(measurementId)}
+                          >
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            ) : null}
 
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8 }}>
-              <label style={{ display: 'block', flex: 1, fontSize: 11.5, opacity: 0.65 }}>
-                Signer
+            <div className="substrate-signature-report">
+              {sections.map(section => (
+                <section
+                  className="substrate-signature-section"
+                  key={section}
+                >
+                  <h2>{section}</h2>
+                  <div className="substrate-signature-lines">
+                    {reportSentences(section).map(sentence => {
+                      const rejected = sentence.review === 'rejected';
+                      const suggested = sentence.review !== 'accepted' && !rejected;
+                      const unsupportedSentence = sentence.provenance.length === 0;
+                      const unsupportedAccepted = acceptedUnsupported.has(sentence.sentenceId);
+                      return (
+                        <article
+                          className={
+                            rejected
+                              ? 'substrate-signature-line is-out'
+                              : 'substrate-signature-line'
+                          }
+                          key={sentence.sentenceId}
+                        >
+                          <p className="substrate-signature-sentence">{sentence.text}</p>
+                          <div className="substrate-signature-source">
+                            {sentence.author.type === 'agent' ? (
+                              <AgentLamp supported={!unsupportedSentence} />
+                            ) : null}
+                            {sentence.provenance.map(entry => {
+                              const measurement = measurementOf(entry.measurementId);
+                              return (
+                                <button
+                                  type="button"
+                                  className="substrate-signature-citation"
+                                  key={entry.measurementId}
+                                  onClick={() => showMeasurement(entry.measurementId)}
+                                >
+                                  {measurement.label}, {measurement.value}
+                                </button>
+                              );
+                            })}
+                            {!rejected && unsupportedSentence && sentence.review === 'accepted' ? (
+                              <button
+                                type="button"
+                                className={
+                                  unsupportedAccepted
+                                    ? 'substrate-signature-source-action is-selected'
+                                    : 'substrate-signature-source-action'
+                                }
+                                aria-pressed={unsupportedAccepted}
+                                onClick={() => toggleUnsupported(sentence.sentenceId)}
+                              >
+                                {unsupportedAccepted
+                                  ? 'Accepted without measurement'
+                                  : 'Accept without measurement'}
+                              </button>
+                            ) : null}
+                          </div>
+                          <div className="substrate-signature-review">
+                            {rejected ? (
+                              <button
+                                type="button"
+                                className="substrate-signature-quiet"
+                                onClick={() =>
+                                  void setSentenceReview(sentence.sentenceId, 'unreviewed')
+                                }
+                              >
+                                Put back
+                              </button>
+                            ) : (
+                              <>
+                                {suggested ? (
+                                  <button
+                                    type="button"
+                                    className="substrate-signature-quiet"
+                                    onClick={() =>
+                                      void setSentenceReview(sentence.sentenceId, 'accepted')
+                                    }
+                                  >
+                                    Keep
+                                  </button>
+                                ) : null}
+                                <button
+                                  type="button"
+                                  className="substrate-signature-quiet"
+                                  onClick={() => leaveOut(sentence)}
+                                >
+                                  Leave out
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+
+            <div className="substrate-signature-close">
+              <p className="substrate-signature-attestation">
+                {ATTESTATION}{' '}
                 <input
+                  ref={signerRef}
+                  className="substrate-signature-name"
                   value={signer}
                   onChange={event => setSigner(event.target.value)}
-                  placeholder="Dr. Name"
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    marginTop: 4,
-                    padding: '7px 10px',
-                    borderRadius: 6,
-                    border: '1px solid rgba(255,255,255,0.18)',
-                    background: 'rgba(255,255,255,0.06)',
-                    color: 'inherit',
-                    font: 'inherit',
-                    fontSize: 13,
-                  }}
+                  placeholder="your name"
+                  aria-label="Your name"
+                  autoComplete="name"
+                  size={Math.max(9, signer.length + 1)}
                 />
-              </label>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              </p>
+              <p
+                className="substrate-signature-consequence"
+                aria-live="polite"
+              >
+                {unreviewed.length > 0
+                  ? `${unreviewed.length} suggested ${unreviewed.length === 1 ? 'sentence needs' : 'sentences need'} review.`
+                  : unaccepted.length > 0
+                    ? `${unaccepted.length} ${unaccepted.length === 1 ? 'sentence has' : 'sentences have'} no measurement behind ${unaccepted.length === 1 ? 'it' : 'them'}.`
+                    : `${activeSentences.length} ${activeSentences.length === 1 ? 'statement' : 'statements'} will be signed.`}
+              </p>
+              <div className="substrate-signature-actions">
                 <button
                   type="button"
+                  className="substrate-signature-ghost"
                   onClick={() => {
                     resolveRequest('declined');
                     dismissRequest();
                   }}
-                  style={{
-                    background: 'transparent',
-                    border: 'none',
-                    color: 'rgba(255,255,255,0.6)',
-                    font: 'inherit',
-                    fontSize: 13,
-                    padding: '7px 10px',
-                    cursor: 'pointer',
-                  }}
                 >
-                  Decline
+                  Not now
                 </button>
+                <span className="substrate-signature-action-space" />
                 <button
                   type="button"
-                  disabled={blockers.length > 0}
+                  className="substrate-signature-primary"
+                  disabled={!canSign}
                   onClick={() => {
-                    sign(signer.trim(), ATTESTATION, [...accepted]);
+                    sign(signer.trim(), ATTESTATION, [...acceptedUnsupported]);
                     resolveRequest('signed');
-                  }}
-                  style={{
-                    background:
-                      blockers.length > 0 ? token['border/hairline'] : token['action/primary'],
-                    color: blockers.length > 0 ? token['ink/dim'] : token['on/primary'],
-                    border: 'none',
-                    borderRadius: 6,
-                    font: 'inherit',
-                    fontSize: 13,
-                    fontWeight: 600,
-                    padding: '8px 18px',
-                    cursor: blockers.length > 0 ? 'not-allowed' : 'pointer',
                   }}
                 >
                   Sign
                 </button>
               </div>
             </div>
-            {blockers.length > 0 ? (
-              <p
-                role="status"
-                style={{ margin: '8px 0 0', fontSize: 11.5, color: token['review/unreviewed'] }}
-              >
-                {unreviewed.length > 0
-                  ? `Review ${unreviewed.length} suggested ${unreviewed.length === 1 ? 'sentence' : 'sentences'}.`
-                  : unaccepted.length > 0
-                    ? `Review ${unaccepted.length} uncited ${unaccepted.length === 1 ? 'sentence' : 'sentences'}.`
-                    : blockers[0]}
-              </p>
-            ) : null}
-          </div>
+          </>
         )}
       </div>
     </div>
   );
 }
+
+const signatureCss = `
+.substrate-signature-room {
+  position: fixed; inset: 0; z-index: 1100;
+  display: flex; align-items: center; justify-content: center;
+  padding: ${token['space/xl']}; overflow: auto;
+  background: rgba(0,0,0,.72); color: ${token['ink/high']};
+  font: ${token['text/body']}; letter-spacing: ${token['tracking/body']};
+  -webkit-font-smoothing: antialiased;
+}
+.substrate-signature-room * { box-sizing: border-box; }
+.substrate-signature-room button,
+.substrate-signature-room input { font-weight: 400; }
+.substrate-signature-room button { cursor: pointer; }
+.substrate-signature-room :focus-visible {
+  outline: 1px solid ${token['ink/low']}; outline-offset: 2px;
+}
+.substrate-signature-sheet {
+  width: min(720px, 100%); max-height: calc(100vh - 48px);
+  padding: ${token['space/card']}; overflow-y: auto;
+  border: 0; border-radius: ${token['radius/outer']};
+  background: ${token['surface/panel']};
+}
+.substrate-signature-visually-hidden {
+  position: absolute; width: 1px; height: 1px; padding: 0;
+  overflow: hidden; clip: rect(0, 0, 0, 0);
+  white-space: nowrap; border: 0;
+}
+.substrate-signature-report,
+.substrate-signature-section,
+.substrate-signature-lines,
+.substrate-signature-receipt {
+  display: flex; flex-direction: column;
+}
+.substrate-signature-report { gap: ${token['space/card']}; }
+.substrate-signature-section { gap: ${token['space/xs']}; }
+.substrate-signature-section > h2 {
+  margin: 0; color: ${token['ink/high']};
+  font: ${token['text/headline']}; font-weight: 400;
+  letter-spacing: ${token['tracking/headline']};
+}
+.substrate-signature-lines { gap: 0; }
+.substrate-signature-line {
+  position: relative; min-width: 0;
+  padding: ${token['space/md']} 116px ${token['space/md']} 0;
+  border-bottom: 1px solid ${token['border/hairline']};
+}
+.substrate-signature-line:last-child { border-bottom: 0; }
+.substrate-signature-sentence {
+  margin: 0; color: ${token['ink/high']};
+  font: ${token['text/body']}; letter-spacing: ${token['tracking/body']};
+}
+.substrate-signature-source {
+  display: flex; min-height: ${token['hit/target']}; align-items: center;
+  gap: ${token['space/sm']}; flex-wrap: wrap;
+}
+.substrate-signature-lamp {
+  width: ${token['agent/lamp-size']}; height: ${token['agent/lamp-size']};
+  flex: none; border-radius: ${token['radius/full']};
+  background: ${token['agent/mark']};
+}
+.substrate-signature-lamp.is-hollow {
+  border: 1px solid ${token['agent/stroke']}; background: transparent;
+}
+.substrate-signature-citation,
+.substrate-signature-quiet,
+.substrate-signature-source-action,
+.substrate-signature-ghost,
+.substrate-signature-primary {
+  min-height: ${token['hit/target']}; border-radius: ${token['radius/inner']};
+  font: ${token['text/ui']};
+}
+.substrate-signature-citation {
+  padding: 0; border: 0; border-radius: 0; background: transparent;
+  color: ${token['ink/low']}; font: ${token['text/measure']};
+  letter-spacing: ${token['tracking/data']}; text-decoration: underline;
+  text-decoration-color: ${token['border/hairline']}; text-underline-offset: 3px;
+}
+.substrate-signature-citation:hover { color: ${token['ink/high']}; }
+.substrate-signature-review {
+  position: absolute; top: ${token['space/sm']}; right: 0;
+  display: flex; gap: ${token['space/xs']};
+}
+.substrate-signature-quiet {
+  padding: 0 ${token['space/sm']}; border: 0; background: transparent;
+  color: ${token['ink/low']}; opacity: 0;
+}
+.substrate-signature-source-action {
+  padding: 0 ${token['space/sm']};
+  border: 1px solid ${token['border/hairline']};
+  background: transparent; color: ${token['ink/low']};
+}
+.substrate-signature-source-action:hover,
+.substrate-signature-source-action.is-selected {
+  border-color: ${token['ink/low']}; color: ${token['ink/high']};
+}
+.substrate-signature-line:hover .substrate-signature-review .substrate-signature-quiet,
+.substrate-signature-quiet:focus-visible,
+.substrate-signature-quiet.is-selected,
+.substrate-signature-line.is-out .substrate-signature-quiet { opacity: 1; }
+.substrate-signature-quiet:hover { color: ${token['ink/high']}; }
+.substrate-signature-line.is-out .substrate-signature-sentence {
+  color: ${token['ink/low']}; text-decoration: line-through;
+}
+.substrate-signature-line.is-out .substrate-signature-source { opacity: .5; }
+.substrate-signature-evidence {
+  width: 100%; margin: 0 0 ${token['space/card']};
+  border-collapse: collapse; table-layout: fixed;
+  color: ${token['ink/low']}; font: ${token['text/measure']};
+  font-variant-numeric: tabular-nums; letter-spacing: ${token['tracking/data']};
+}
+.substrate-signature-evidence td {
+  padding: 0; border-bottom: 1px solid ${token['border/hairline']};
+  vertical-align: baseline;
+}
+.substrate-signature-evidence td:first-child {
+  width: 38%; color: ${token['ink/high']}; text-align: left;
+}
+.substrate-signature-evidence td:nth-child(2) { width: 44%; text-align: right; }
+.substrate-signature-evidence td:last-child { width: 18%; text-align: right; }
+.substrate-signature-close {
+  display: flex; flex-direction: column; gap: ${token['space/base']};
+  margin-top: ${token['space/section']}; padding-top: ${token['space/xl']};
+  border-top: 1px solid ${token['border/hairline']};
+}
+.substrate-signature-name {
+  min-width: 120px; max-width: 100%; min-height: 32px;
+  padding: 0 2px; border: 0;
+  border-bottom: 1px solid ${token['border/hairline']};
+  border-radius: 0; background: transparent; color: ${token['ink/high']};
+  font: ${token['text/body-large']};
+  letter-spacing: ${token['tracking/body-large']};
+}
+.substrate-signature-name::placeholder { color: ${token['on/disabled']}; }
+.substrate-signature-name:focus {
+  border-bottom-color: ${token['ink/low']}; outline: 0;
+}
+.substrate-signature-consequence {
+  margin: 0; color: ${token['ink/low']};
+  font: ${token['text/body-small']};
+  letter-spacing: ${token['tracking/body-small']};
+}
+.substrate-signature-actions {
+  display: flex; align-items: center; gap: ${token['space/sm']};
+}
+.substrate-signature-action-space { flex: 1; }
+.substrate-signature-ghost,
+.substrate-signature-primary { padding: 7px ${token['space/md']}; }
+.substrate-signature-ghost {
+  border: 1px solid ${token['border/hairline']};
+  background: transparent; color: ${token['ink/high']};
+}
+.substrate-signature-ghost:hover { border-color: ${token['ink/low']}; }
+.substrate-signature-primary {
+  padding: 9px ${token['space/lg']}; border: 0;
+  background: ${token['action/primary']}; color: ${token['on/primary']};
+}
+.substrate-signature-primary:disabled {
+  background: ${token['action/disabled']}; color: ${token['on/disabled']};
+  cursor: not-allowed;
+}
+.substrate-signature-receipt { gap: ${token['space/md']}; }
+.substrate-signature-attestation {
+  margin: 0; color: ${token['ink/high']};
+  font: ${token['text/body-large']};
+  letter-spacing: ${token['tracking/body-large']};
+}
+.substrate-signature-name-set { border-bottom: 1px solid ${token['border/hairline']}; }
+.substrate-signature-meta {
+  display: flex; flex-direction: column; gap: ${token['space/sm']};
+  color: ${token['ink/low']}; font: ${token['text/measure']};
+  font-variant-numeric: tabular-nums; letter-spacing: ${token['tracking/data']};
+  overflow-wrap: anywhere;
+}
+.substrate-signature-error {
+  margin: 0; color: ${token['status/error']};
+  font: ${token['text/body-small']};
+  letter-spacing: ${token['tracking/body-small']};
+}
+.substrate-signature-room button:active:not(:disabled) { transform: scale(.96); }
+@media (max-width: 560px) {
+  .substrate-signature-room { padding: ${token['space/md']}; }
+  .substrate-signature-sheet {
+    max-height: calc(100vh - 24px); padding: ${token['space/xl']};
+  }
+  .substrate-signature-line {
+    padding-right: 0; padding-bottom: ${token['space/section']};
+  }
+  .substrate-signature-review {
+    top: auto; right: auto; bottom: ${token['space/xs']}; left: 0;
+  }
+  .substrate-signature-review .substrate-signature-quiet { opacity: 1; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .substrate-signature-room button {
+    transition: transform ${token['motion/enter']}ms ease-out;
+  }
+}
+@media (hover: none) {
+  .substrate-signature-review .substrate-signature-quiet { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .substrate-signature-room button { transition: none; }
+}
+`;

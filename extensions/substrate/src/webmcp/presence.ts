@@ -1,5 +1,5 @@
-import type { RegistrationResult } from './spec'
-import type { SessionState } from '../designTokens'
+import type { RegistrationResult } from './spec';
+import { token, type SessionState } from '../designTokens';
 
 /**
  * What the agent has been doing, so the panel and the radiologist can see it.
@@ -12,26 +12,37 @@ import type { SessionState } from '../designTokens'
  */
 
 export type ToolCallEvent = {
-  callId: number
-  tool: string
-  argsSummary: string
-  resultSummary: string
-  entities: string[]
-  ok: boolean
-  startedAt: number
-  running?: boolean
+  callId: number;
+  owner: 'active-reader';
+  delegate: 'substrate';
+  tool: string;
+  argsSummary: string;
+  resultSummary: string;
+  entities: string[];
+  ok: boolean;
+  startedAt: number;
+  finishedAt?: number;
+  /** Reader-facing activity fields. Tool names never cross this boundary. */
+  activity?: AgentActivity;
+  running?: boolean;
   /** Cancels the in-flight execute when the browser call is still pending. */
-  stop?: () => void
+  stop?: () => void;
   /** A successful, visible effect the agent caused in a named viewport. */
-  effects?: AgentViewportEffect[]
+  effects?: AgentViewportEffect[];
   /** Set when the call changed something a person can put back. */
-  undo?: () => void | Promise<void>
-}
+  undo?: () => void | Promise<void>;
+};
+
+export type AgentActivity = {
+  action: string;
+  parameter?: string;
+  result?: string;
+};
 
 export type AgentViewportEffect = {
-  viewportId: string
-  label: string
-}
+  viewportId: string;
+  label: string;
+};
 
 export const WRITE_TOOLS = new Set([
   'navigate',
@@ -40,104 +51,140 @@ export const WRITE_TOOLS = new Set([
   'propose_measurement',
   'draft_report',
   'request_signature',
-])
+]);
 
 export function isWriteEvent(event: ToolCallEvent): boolean {
-  return WRITE_TOOLS.has(event.tool)
+  return WRITE_TOOLS.has(event.tool);
 }
 
-type Listener = () => void
+type Listener = () => void;
 
 class Presence {
-  private events: ToolCallEvent[] = []
-  private nextCallId = 1
-  private registration: RegistrationResult = { ok: true, registered: [] }
-  private listeners = new Set<Listener>()
+  private events: ToolCallEvent[] = [];
+  private nextCallId = 1;
+  private registration: RegistrationResult = { ok: true, registered: [] };
+  private listeners = new Set<Listener>();
 
   subscribe(listener: Listener): () => void {
-    this.listeners.add(listener)
-    return () => this.listeners.delete(listener)
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
   }
 
   private announce(): void {
-    for (const listener of this.listeners) listener()
+    for (const listener of this.listeners) listener();
   }
 
   record(event: ToolCallEvent): void {
-    this.events = [event, ...this.events].slice(0, 200)
-    this.announce()
+    this.events = [event, ...this.events].slice(0, 200);
+    this.announce();
   }
 
-  begin(tool: string, argsSummary: string, startedAt: number, stop?: () => void): number {
-    const callId = this.nextCallId++
+  begin(
+    tool: string,
+    argsSummary: string,
+    startedAt: number,
+    stop?: () => void,
+    activity?: AgentActivity
+  ): number {
+    const callId = this.nextCallId++;
     this.record({
       callId,
+      owner: 'active-reader',
+      delegate: 'substrate',
       tool,
       argsSummary,
       resultSummary: '',
       entities: [],
       ok: true,
       startedAt,
+      activity,
       running: true,
       stop,
-    })
-    return callId
+    });
+    return callId;
   }
 
-  finish(callId: number, event: Omit<ToolCallEvent, 'callId' | 'running'>): void {
-    const index = this.events.findIndex(entry => entry.callId === callId)
-    const finished = { ...event, callId, running: false }
+  finish(
+    callId: number,
+    event: Omit<ToolCallEvent, 'callId' | 'running' | 'owner' | 'delegate'>
+  ): void {
+    const index = this.events.findIndex(entry => entry.callId === callId);
+    const finished: ToolCallEvent = {
+      ...event,
+      callId,
+      owner: 'active-reader',
+      delegate: 'substrate',
+      running: false,
+      finishedAt: Date.now(),
+    };
     if (index === -1) {
-      this.events = [finished, ...this.events].slice(0, 200)
+      this.events = [finished, ...this.events].slice(0, 200);
     } else {
       this.events = this.events.map((entry, entryIndex) =>
         entryIndex === index ? finished : entry
-      )
+      );
     }
-    this.announce()
+    this.announce();
   }
 
   /** Newest first. The feed renders this directly. */
   getEvents(): ToolCallEvent[] {
-    return this.events
+    return this.events;
   }
 
   getLast(): ToolCallEvent | null {
-    return this.events[0] ?? null
+    return this.events[0] ?? null;
   }
 
   getLastWrite(): ToolCallEvent | null {
-    return this.events.find(isWriteEvent) ?? null
+    return this.events.find(isWriteEvent) ?? null;
   }
 
   /** The only session-state decision. UI consumers render this; they do not infer it. */
   getSessionState(waitingForHuman = false, now = Date.now()): SessionState {
-    if (!this.registration.ok && this.registration.failure.kind !== 'unsupported') return 'error'
-    const last = this.getLast()
-    if (waitingForHuman) return 'waiting-for-you'
-    if (last?.running && isWriteEvent(last)) return 'working'
-    if (last && !last.running && !last.ok) return 'error'
-    const lastWrite = this.getLastWrite()
-    if (lastWrite && now - lastWrite.startedAt < 2000) return 'done'
-    return 'idle'
+    if (this.registration.ok === false && this.registration.failure.kind !== 'unsupported') {
+      return 'error';
+    }
+    const last = this.getLast();
+    if (waitingForHuman) return 'waiting-for-you';
+    if (last?.running && isWriteEvent(last)) return 'working';
+    if (
+      last &&
+      !last.running &&
+      !last.ok &&
+      now - (last.finishedAt ?? last.startedAt) < token['motion/error-hold']
+    ) {
+      return 'idle';
+    }
+    if (
+      last &&
+      !last.running &&
+      !last.ok &&
+      now - (last.finishedAt ?? last.startedAt) >= token['motion/error-hold']
+    ) {
+      return 'error';
+    }
+    const lastWrite = this.getLastWrite();
+    if (lastWrite && now - lastWrite.startedAt < 2000) return 'done';
+    return 'idle';
   }
 
   setRegistration(registration: RegistrationResult): void {
-    this.registration = registration
-    this.announce()
+    this.registration = registration;
+    this.announce();
   }
 
   getRegistration(): RegistrationResult {
-    return this.registration
+    return this.registration;
   }
 
   clear(): void {
-    this.events = []
-    this.announce()
+    this.events = [];
+    this.announce();
   }
 }
 
-export const presence = new Presence()
+export const presence = new Presence();
 
 /**
  * A short summary of what a call was asking for, in the reader's words.
@@ -160,14 +207,14 @@ const PHRASING = new Map<string, (value: unknown) => string>([
   ['tracked_only', () => 'tracked only'],
   ['viewports', value => `${Array.isArray(value) ? value.length : 0} series`],
   ['label', value => `labelled ${String(value)}`],
-])
+]);
 
 export function summarize(input: Record<string, unknown>): string {
-  const parts: string[] = []
+  const parts: string[] = [];
   for (const [key, value] of Object.entries(input)) {
-    if (value === undefined || value === null || value === false) continue
-    const phrase = PHRASING.get(key)
-    if (phrase) parts.push(phrase(value))
+    if (value === undefined || value === null || value === false) continue;
+    const phrase = PHRASING.get(key);
+    if (phrase) parts.push(phrase(value));
   }
-  return parts.join(', ')
+  return parts.join(', ');
 }

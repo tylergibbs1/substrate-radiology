@@ -12,8 +12,13 @@ surface rather than by asking it nicely: no tool returns pixel data, no tool
 takes coordinates the agent chose, and no tool records a finding.
 
 `src/webmcp/spec.ts` is the only file that touches `document.modelContext`.
-`src/webmcp/viewerTools.ts` is the tool surface, and its descriptions are
-product copy — an agent picks tools from them alone.
+The rest of the WebMCP boundary is split by responsibility:
+
+- `viewerContext.ts` normalizes OHIF services and serializes viewer state;
+- `studyInventory.ts` discovers studies without exposing pixels;
+- `observeTool.ts` applies the shared execution, presence, and error contract;
+- `viewerTools.ts` composes the public tool surface. Its descriptions are
+  product copy — an agent picks tools from them alone.
 
 ## Human gate and export
 
@@ -32,8 +37,14 @@ so rather than silently presenting the old signature as current.
 
 ## Activity surface
 
-The viewer shows one compact state line along the bottom edge. It expands into
-proposal decisions and prose summaries of write bursts; reads and raw tool
-names stay in the browser's Site tools panel. Successful viewport writes use a
-single transient frame pulse and caption. The UI uses dark, hairline-separated
-surfaces with one functional action accent and no persistent status glow.
+The viewer shows one compact state line below the viewport grid. Agent work,
+proposal decisions, report review, and prose summaries of write bursts live in
+OHIF's right panel; reads and raw tool names stay in the browser's Site tools
+panel. Successful viewport writes use a single transient frame pulse and
+caption. The UI uses dark, hairline-separated surfaces with one functional
+action accent and no persistent status glow.
+
+`AgentIsland.tsx` coordinates state only. The collapsed rail, expanded shell,
+and domain panels live in their matching modules; display phrases and shared
+styles live in `agentIslandModel.ts` and `agentIslandStyles.ts`. Keep new domain
+behavior out of the coordinator.

@@ -142,8 +142,9 @@ the viewer; Assist holds workflow writes for an explicit Apply or Skip decision,
 and `get_context` reports the level, instructions, and pending confirmations.
 Full prep deterministically waits for OHIF's viewports, discovers and hangs the
 latest prior, applies display presets, propagates labeled measurements as
-proposals, compares accepted measurements, and prepares the draft without an
-agent. Every workflow write has an undo boundary, the timing comparison records
+proposals, compares accepted measurements, and prepares a draft when labeled
+evidence exists. With no labeled evidence, the panel asks the reader to label a
+target instead of drafting a null result. Every workflow write has an undo boundary, the timing comparison records
 by-hand and prepared runs, and report review supports sentence keep/remove,
 threaded replies, exact-sentence revision, template changes, version restore,
 signature staleness, and human-only export.

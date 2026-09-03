@@ -37,6 +37,7 @@ module.exports = (env, argv) => {
       libraryTarget: 'umd',
       libraryExport: 'default',
       filename: pkg.main,
+      assetModuleFilename: 'dist/assets/[hash][ext][query]',
     },
     externals: [/\b(vtk.js)/, /\b(dcmjs)/, /\b(gl-matrix)/, /^@ohif/, /^@cornerstonejs/],
     plugins: [

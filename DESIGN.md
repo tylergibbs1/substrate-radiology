@@ -1,117 +1,548 @@
-# Substrate design decisions
+---
+version: alpha
+name: Substrate
+description: A darkroom instrument for reading medical images alongside an agent. Pure black room, a neutral grey ladder with no colour in it at all, and a single violet signal that belongs to the agent and to nothing else. The accent is tuned to survive both ends of a windowed CT, which is the only constraint that mattered. All type is one weight; hierarchy comes from size and tracking. No shadows, no gradients, no eyebrows, no all-caps. The agent is a 6px lamp and a 2px ring, never a persona.
+colors:
+  surface: "#000000"
+  surface-bed: "#0b0b0e"
+  surface-card: "#1c1c1c"
+  surface-inset: "#2a2a2a"
+  surface-raised: "#383838"
+  on-surface: "#ffffff"
+  on-surface-muted: "#d8d8d8"
+  on-surface-dim: "#7b7b7b"
+  primary: "#ffffff"
+  on-primary: "#1c1c1c"
+  signal-mark: "#8b76ff"
+  signal-stroke: "#6d52ff"
+  on-signal: "#ffffff"
+  error: "#eb5757"
+typography:
+  headline-md:
+    fontFamily: Inter Tight
+    fontSize: 24px
+    fontWeight: 400
+    lineHeight: 1.2
+    letterSpacing: -0.14px
+  body-lg:
+    fontFamily: Inter Tight
+    fontSize: 22px
+    fontWeight: 400
+    lineHeight: 1.4
+    letterSpacing: -0.13px
+  body-md:
+    fontFamily: Inter Tight
+    fontSize: 18px
+    fontWeight: 400
+    lineHeight: 1.3
+    letterSpacing: -0.018px
+  body-sm:
+    fontFamily: Inter Tight
+    fontSize: 16px
+    fontWeight: 400
+    lineHeight: 1.4
+    letterSpacing: -0.016px
+  ui-md:
+    fontFamily: Inter Tight
+    fontSize: 13px
+    fontWeight: 400
+    lineHeight: 1.45
+    letterSpacing: 0
+  data-md:
+    fontFamily: Geist Mono
+    fontSize: 13px
+    fontWeight: 400
+    lineHeight: 1.23
+    letterSpacing: -0.26px
+    fontFeature: "'tnum' 1"
+rounded:
+  none: 0px
+  inner: 8px
+  outer: 20px
+  full: 9999px
+spacing:
+  xs: 4px
+  sm: 8px
+  md: 12px
+  base: 16px
+  lg: 20px
+  xl: 24px
+  card: 40px
+  section: 48px
+  room: 80px
+components:
+  card:
+    backgroundColor: "{colors.surface-card}"
+    textColor: "{colors.on-surface}"
+    typography: "{typography.body-md}"
+    rounded: "{rounded.outer}"
+    padding: "{spacing.card}"
+  viewport:
+    backgroundColor: "{colors.surface}"
+    rounded: "{rounded.outer}"
+    padding: "{rounded.none}"
+  lamp:
+    backgroundColor: "{colors.signal-mark}"
+    rounded: "{rounded.full}"
+    size: 6px
+  lamp-unsupported:
+    backgroundColor: "{colors.surface-card}"
+    borderColor: "{colors.signal-mark}"
+    rounded: "{rounded.full}"
+    size: 6px
+  presence-ring:
+    borderColor: "{colors.signal-stroke}"
+    rounded: "{rounded.outer}"
+    size: 2px
+  button-primary:
+    backgroundColor: "{colors.primary}"
+    textColor: "{colors.on-primary}"
+    typography: "{typography.ui-md}"
+    rounded: "{rounded.inner}"
+    padding: 9px 20px
+  button-ghost:
+    backgroundColor: "{colors.surface-card}"
+    textColor: "{colors.on-surface}"
+    borderColor: "{colors.on-surface-dim}"
+    typography: "{typography.ui-md}"
+    rounded: "{rounded.inner}"
+    padding: 7px 12px
+  button-ghost-hover:
+    borderColor: "{colors.on-surface-muted}"
+  button-primary-disabled:
+    backgroundColor: "{colors.on-surface-dim}"
+    textColor: "{colors.on-surface-muted}"
+  arrow-send:
+    backgroundColor: "{colors.signal-mark}"
+    textColor: "{colors.on-signal}"
+    rounded: "{rounded.inner}"
+    size: 40px
+  input-line:
+    backgroundColor: "{colors.surface-card}"
+    textColor: "{colors.on-surface}"
+    borderColor: "{colors.on-surface-dim}"
+    typography: "{typography.body-lg}"
+    rounded: "{rounded.none}"
+    padding: 0px 0px 12px 0px
+  input-line-focus:
+    borderColor: "{colors.on-surface-muted}"
+  citation:
+    textColor: "{colors.on-surface-muted}"
+    typography: "{typography.data-md}"
+  hairline:
+    backgroundColor: "{colors.on-surface-dim}"
+    height: 1px
+  measurement-table:
+    textColor: "{colors.on-surface-muted}"
+    typography: "{typography.data-md}"
+---
 
-This file is the source of truth for product design decisions shared by people,
-agents, code, and recorded demos. The purpose is not visual consistency for its
-own sake. It is to make each recurring decision once so nobody makes it again in
-a component.
+# Substrate Design System
 
-## Product context
+## Overview
 
-- Audience: radiologists and research readers working in a dark reading room.
-- Job: let an agent handle workflow around image interpretation while the
-  radiologist remains the primary actor, confirms measurements, and signs.
-- Character: a midnight precision instrument—quiet, compact, deterministic,
-  and attributable. Never decorative technology theater.
+Substrate is read in a dim room by one person who is looking at something
+else. The images are the subject; the interface is the bench the images sit
+on. Everything here follows from that.
 
-## Semantic tokens
+The room is pure black and every interface surface above it is a neutral
+grey with no chroma at all. There is exactly one colour in the product, a
+violet that belongs to the agent: a 6px lamp, a 2px ring, one 40px arrow.
+When it appears, the eye finds it immediately, because it is the only
+chromatic thing on the screen.
 
-The runtime values live in
-`extensions/substrate/src/designTokens.ts`. Use these names in design notes,
-code review, implementation prompts, and the video.
+The accent was chosen by measurement, not by taste. It has to stay visible on
+a study whose luminance the radiologist changes with a window preset, which
+means against near-black lung and near-white bone in the same image. Working
+back from that, the ideal accent luminance is about 0.168, and the best worst
+case any colour can reach is 4.05. Violet at `#6d52ff` reaches 4.00. A light
+accent cannot: a lime reaches 1.01 against bright bone, which is
+indistinguishable from white.
 
-| Name | Decision |
-|---|---|
-| `agent/mark` | One circle-to-loop mark. It morphs only while the agent is working and rests as a loop for authorship. |
-| `agent/accent` | One agent color. Nothing else may use it. |
-| `action/primary` | The one human commit action: Apply, Accept, Keep, Sign, or primary export. |
-| `action/primary-hover` | Hover state for the primary action. |
-| `action/primary-press` | Pressed state for the primary action. |
-| `on/primary` | Text on the primary action. |
-| `state/proposed` | Dashed measurement; not report evidence. |
-| `state/confirmed` | Solid measurement; human-confirmed evidence. |
-| `state/unaligned` | Proposal geometry needs human adjustment. |
-| `review/unreviewed` | Not yet reviewed by the radiologist. |
-| `review/accepted` | Explicitly accepted. |
-| `review/rejected` | Explicitly rejected. |
-| `review/stale` | Changed after the decision or signature. |
-| `session/idle` | No work in flight. |
-| `session/working` | A write is in flight. |
-| `session/waiting-for-you` | A confirmation, proposal, reply, or signature needs a person. |
-| `session/done` | The requested burst completed. |
-| `session/error` | The requested change failed. |
-| `autonomy/assist` | Every workflow write waits for an in-site human decision. |
-| `autonomy/auto-prep` | Workflow writes run; proposals and signing still wait for the human. Default. |
-| `autonomy/full-prep` | The same boundary as Auto-prep, plus deterministic prep on study open. |
-| `surface/room` | Viewer-room near-black. |
-| `surface/panel` | Agent and review surfaces. |
-| `border/hairline` | The only structural edge. |
-| `ink/high` | Primary text and the object currently under review. |
-| `ink/mid` | Default interface text. |
-| `ink/low` | Secondary text that must remain readable. |
-| `ink/dim` | Nonessential metadata; never instructions or required state. |
-| `motion/enter` | 150 ms. |
-| `motion/exit` | 100 ms. |
-| `motion/presence` | The viewport pulse; the only long motion. |
-| `text/ui` | 12–13 px interface text. |
-| `text/measure` | Tabular numerals for measurements, dates, slices, and hashes. |
+The voice is a lab notebook, not an application. One type weight. Sentence
+case. No labels announcing what a thing is when the thing already says it.
+An agent works here alongside the reader, and it announces itself with light
+rather than with words.
 
-There is no fourth measurement state and no additional session state. Additions
-require changing this decision before changing a component.
+## Colors
 
-The autonomy level is chosen only in the UI. It never changes the safety
-boundary: no level exposes pixels, invents coordinates, accepts a proposal, or
-signs. At Assist, a pending workflow write is an `elicitation` and the canonical
-choices are Apply and Skip.
+The ladder is five levels, and depth comes from the step between them rather
+than from a shadow or a border.
 
-The collapsed agent rail contains one status, one object, and at most one
-decision. Settings, report review, history, timing, and diagnostics are disclosed
-inside the expanded surface and never repeat the same completed plan.
+| Level | Token | Value | Purpose |
+|---|---|---|---|
+| 0 | `surface` | `#000000` | The room. Every surface sits on it. |
+| 1 | `surface-bed` | `#0b0b0e` | The ground under the images. One whisper of a step off the room, so bright pixels stay dominant. |
+| 2 | `surface-card` | `#1c1c1c` | Panel and sheet. The one interface surface. |
+| 3 | `surface-inset` | `#2a2a2a` | A group inside a panel. Replaces a border. |
+| 4 | `surface-raised` | `#383838` | A question or a sheet over a panel. The only level that overlaps another. |
 
-## Components worth systematizing
+Adjacent steps run 1.068, 1.153, 1.187, 1.224, widening as they rise. Every
+level is chroma zero. A tinted surface under a chromatic accent is two hues
+quietly disagreeing, and the accent is the only thing in this product allowed
+to have an opinion about colour.
 
-Systematize only repeated things with states, an actual rule, and an owner:
+Hairlines derive from the next level up, never from a fixed grey. A rule on
+`surface-card` is `surface-inset`; a rule on `surface-inset` is
+`surface-raised`. A hairline is therefore always exactly one step of
+separation, and it never has to be tuned per surface.
 
-- plan card;
-- summary entry;
-- proposal row;
-- elicitation card.
+- **On-surface (#ffffff):** Sentences, headings, the reader's own words.
+- **On-surface-muted (#d8d8d8):** Measurements, citations, technical
+  readouts, resolved steps.
+- **On-surface-dim (#7b7b7b):** Disabled fills and non-text decoration only.
+  It never carries words, labels, metadata, placeholders, or state. Muted is
+  the quietest text colour; disabled text uses its dedicated semantic token.
+- **Primary (#ffffff) on On-primary (#1c1c1c):** The one filled action per
+  surface. Light on dark; the reverse of the surface it sits on.
+- **Signal-mark (#8b76ff):** The agent, on an interface surface. Solid marks
+  only: the lamp and the arrow. 5.38 on `surface-card`.
+- **Signal-stroke (#6d52ff):** The agent, on an image. Thin strokes only: the
+  2px presence ring, the 1px ring of an unsupported lamp. Tuned to the
+  measured optimum, 4.00 worst case across a windowed CT. A thin stroke reads
+  lighter than a solid field at the same value, which is why these are two
+  values of one hue. Never both in one element.
+- **Error (#eb5757):** Failure only. Never used for status, never for
+  emphasis. It sits at almost exactly the accent's luminance, 1.02 between
+  them, so colour cannot separate the two and is not asked to: an error mark
+  is a filled square where the agent's mark is a circle. Shape carries it.
 
-Do not generalize the panel header, empty states, or About text. They occur once
-and have no reusable state model.
+Design in monochrome. Color appears only where it carries meaning that
+nothing else can, and it is always paired with a non-color cue. Proposed
+against confirmed is dashed against solid. Unreviewed is the lamp as a ring
+instead of a fill. Neither depends on hue, so neither depends on the reader
+seeing hue.
+
+## Typography
+
+Inter Tight is the single sans, standing in for PP Neue Montreal, which is
+licensed. Geist Mono sets the identifier, never the sentence around it, and
+needs no substitute. A sentence naming a
+slice stays in sans with only the number in mono; a table of measurements is
+mono throughout because every cell is an identifier.
+
+- **headline-md (24px):** Section headings and the reader's stated intent.
+- **body-lg (22px):** The attestation, and the intent input. The largest
+  text on a surface is whatever the reader is about to commit to.
+- **body-md (18px):** Report sentences, summaries, prose in a sheet.
+- **body-sm (16px):** Secondary prose.
+- **ui-md (13px):** Dense panel text and button labels.
+- **data-md (13px Geist Mono, tabular):** Measurements, deltas, hashes, window and
+  level readouts, slice numbers. Tabular figures are required wherever a
+  value changes in place, so a ticking number never reflows the line around
+  it.
+
+One weight, 400, everywhere. Hierarchy is size, line-height compression, and
+tracking that tightens as size grows. Nothing is bold, nothing is italic,
+nothing is uppercase.
+
+Equivalent peers share role, size, weight, line-height, and numeric
+treatment. Never resize one because its string is longer or its value is
+larger. If two things genuinely need different treatment, they are not peers;
+rank them or group them so the geometry matches the argument.
+
+### Two systems, named
+
+Two densities coexist by design, and only two. Each is a named system with a
+scope rule, so a violation is a fact rather than an opinion.
+
+**Bench.** Every docked surface: the panel, the status strip, proposal rows,
+the plan, history, viewport readouts, and every inline question. Runs at
+ui-md and data-md only. A radiologist scans Bench while looking elsewhere.
+Use Bench nowhere else.
+
+**Plate.** The signature sheet, and nothing else today. Runs at body-md,
+body-lg, and headline-md. It is read rather than scanned, and it is the only
+place the editorial scale appears. A surface that is docked does not get
+Plate, whatever it contains. A future full-attention surface may adopt Plate
+only if it takes the whole screen and no images are being judged on it.
+
+## Layout
+
+Content columns cap at 720px on a surface and 1200px in the room. The scale
+is 4px-based.
+
+### Every gap has one owner
+
+A container sets the gap; its children do not add margins. When a group is
+built in page-owned CSS, reset the margins of its direct children and let the
+container's `gap` own the rhythm. Two sources for one gap is a defect, and it
+is never repaired with a one-off margin on the element that looks wrong.
+Repair the grouping or the owner.
+
+### Reach
+
+Minimum interactive target is 44 by 44px, measured on the hit area rather
+than the paint. Small marks keep their drawn size and grow their target with
+a pseudo-element:
+
+    .lamp { position: relative; }
+    .lamp::after {
+      content: ""; position: absolute;
+      inset: -19px;               /* 6px mark to a 44px target */
+    }
+
+This applies to the lamp, the citation link, the undo control, the disclosure,
+and every ghost button under 44px tall. A 6px lamp that jumps to its
+measurement with a 6px target is a defect, not a minimal design.
+
+### Rhythm is relationships, not one value
+
+- Heading to its first line: close.
+- Line to line, or line to list: one body rhythm.
+- Lamp to citation, value to detail: identical across every peer.
+- Group to a new group: clearly larger.
+- Surface to surface in the room: largest.
+
+Within a group, `sm` through `base`. Between groups, `xl` through `card`.
+Between sections of a card, `section`. `room` is the gap between surfaces and
+never the default stack value.
+
+Judge the whole transition, not the token. A large gap beside a short or
+underfilled group compounds emptiness even when the token is correct. Reduce
+the gap, rebalance, or stack until the open space has a purpose. Open space
+should amplify the thing it surrounds; a large empty rectangle is a layout
+failure, not restraint.
+
+Nothing floats over the images. Panels dock. A collapsed panel leaves a
+single row of state anchored below the image grid, never over it. Overlays
+exist only for the signature, which is the one moment the images are not
+being judged.
+
+## Elevation & Depth
+
+Flat. There are no shadows anywhere in the product, and no gradients on any
+interface surface. Depth is the step from black room to ink card, plus 1px
+hairlines. A gradient near the images would read as image content, and a
+shadow implies a floating panel, which this product does not have.
+
+The only surface gradient permitted is the radial falloff inside an empty
+viewport, which is scaffolding for absent pixels and disappears when a study
+loads. While the agent is working, its `Working` label may use the single text
+shimmer: muted to white to muted over 1600ms. The lamp itself stays static and
+reduced-motion users receive the plain muted label.
+
+## Shapes
+
+Three radii, and no others: `inner` 8px, `outer` 20px, `full`.
+
+Outer radius equals inner radius plus padding. A card at `outer` 20 with 12px
+padding holds an `inner` 8 group exactly, and that arithmetic is why the
+padding is 12 rather than 16. Viewports take `outer`, the same as cards, so
+images read as plates on a bench. Buttons, groups and inline questions take
+`inner`. Lamps are `full`.
+
+A group whose corner is tighter than the card holding it is the mismatch that
+reads as slightly wrong without being nameable. Check the arithmetic before
+adding a fourth value.
+
+Hairlines are 1px and horizontal only. Never thicker, never dashed, never
+vertical, never doubled.
+
+## Repeated evidence
+
+Any set of repeated rows carrying a value is sized as one layout, never row by
+row. Give the set one label lane, one plot or value lane, and one lane for
+each aligned annotation. Every track starts and ends on the same grid lines;
+only the fill or the value varies. A row whose label length changes the
+position of its value is a layout failure. Use a parent grid or shared fixed
+tracks rather than content-sized columns resolved independently inside each
+row. This governs the measurement table now and the sum-of-diameters bars
+across timepoints later.
+
+Tables are evidence:
+
+- A column header matches the alignment of every cell beneath it. Labels left,
+  numbers right, including totals and placeholders.
+- Body cells align to the row's first text baseline, never centered, even when
+  one cell wraps.
+- The label column is wide enough that ordinary short labels stay on one line.
+  Never wrap a label while a sibling column holds unused width.
+- Never spend a column repeating one category down a run of rows. Group the
+  rows instead.
+- Peer units and precision are consistent. No fake precision.
+
+## Components
+
+- **Card:** Ink surface, 20px radius, 40px padding, no border, no shadow.
+  Takes one shape option, `raised` or `flush`. Flush drops the radius and the
+  padding so the same content can render inside a host container, which is
+  how the panel sits in OHIF's side panel without becoming a second
+  component.
+- **Viewport:** Black, 16px radius. Nothing is drawn inside the image
+  bounds. The presence ring rides the frame.
+- **Lamp:** 6px round signal. Filled means present; a 1px ring with a hollow
+  center means absent. This is the entire status vocabulary.
+- **Button (primary):** White fill, ink text, 8px radius, sentence case. One
+  per surface.
+- **Button (ghost):** Transparent with a dim hairline border, brightening to
+  muted on hover. Every other action.
+- **Arrow send:** 40x40, the only signal fill larger than 6px, holding an
+  ink arrow. It commits an intent.
+- **Input line:** No box. A single bottom hairline that brightens on focus.
+  Text sits at body-lg, so typing is the largest thing on the surface.
+- **Citation:** Mono, muted, underlined with a dim rule. It is a jump to the
+  measurement, not a label describing one.
+- **Measurement table:** Mono, tabular figures, hairline rows, no header
+  row. Prior and current are joined by an arrow, which makes a header
+  unnecessary.
+
+## Do's and Don'ts
+
+- Do carry hierarchy with size and tracking. Weight 400 is the whole system.
+- Do keep the signal at 6px lamps, a 2px ring, and one 40px arrow.
+- Do use `signal-mark` on interface surfaces and `signal-stroke` on images,
+  and never mix the two in one element.
+- Do keep every surface at chroma zero. The accent is the only colour.
+- Do check outer equals inner plus padding before choosing a radius.
+- Do write sentence case, verbs first, and let content speak for itself.
+- Do give every write an undo, and keep what was removed visible and
+  restorable rather than deleting it.
+- Do use tabular figures for every number that changes in place, so a
+  ticking value never reflows the line around it.
+- Do give every gap exactly one owner, and express rhythm as a relationship
+  rather than as one stack value.
+- Do give every interactive mark a 44px target, however small it is drawn.
+- Do let the reader own the scroll position during a run.
+- Do hold a transient failure for two seconds before showing it.
+- Do name the system a surface belongs to, Bench or Plate, before choosing a
+  type size.
+- Do size repeated rows as one layout with shared lanes, so a long label can
+  never move a value.
+- Don't add eyebrows, section counters, all-caps labels, or attribute names
+  in front of values. If a row needs a word to explain what it is, the row
+  is wrong.
+- Don't fill anything larger than 40px with the signal, and never put text
+  on it.
+- Don't use a second accent. State is shape and light, not hue, and the error
+  colour is close enough to the accent in luminance that it could not be a
+  second accent even if the rule allowed one.
+- Don't draw a border where a step up the ladder would say the same thing.
+- Don't set text in a surface value, or a surface in a text value.
+- Don't apply shadows or interface gradients.
+- Don't say "AI" in the interface. The agent's suggestions are "suggested."
+- Don't let any surface float over the images.
+- Don't wrap a single write in a summary, a plan, or a group.
+- Don't load a typeface from a third-party origin. Bundle it, because the
+  reading network will not reach one.
+- Don't put the signal on the signing action. The agent cannot sign, so it
+  must not wear the agent's color.
+
+## Changing this system
+
+A change to any surface ships with a before and an after image. A change that
+depends on motion, timing, or a transition ships with a short recording of it
+running. A value that claims a contrast, a luminance, or a target size ships
+with the number that was measured, not the number that was intended.
+
+## Accountability
+
+An agent cannot be held accountable. That is the reason for every boundary in
+this system, and it is why the signal never touches the signing action: the
+agent can propose the sentence, and only a person can answer for it.
+
+It follows that every object the agent touched names two parties, not one.
+The lamp names the agent. The report names its signer. In a single-reader
+study the second is implicit; in a teaching read, where a resident's agent
+proposes and an attending co-signs, it must be on the object. An agent with
+work attributed to it and no visible human owner leaves a reader with nothing
+to disagree with.
+
+## Agent presence
+
+The agent has one identity and it is light. It is never an avatar, never a
+name in a chat bubble, never a persona.
+
+- **Ring.** On a write, a 2px signal ring rides the affected viewport's
+  frame: 150ms in, 600ms hold, 400ms out. Once per burst, showing the final
+  state. Never inside the image bounds.
+- **Chip.** For the same lifetime, an ink pill in the viewport corner naming
+  the effect: `slice 78`, `lung window`.
+- **Dot.** After the ring fades, a 6px lamp stays in that viewport's corner
+  until the reader touches that viewport.
+- **Lamp.** The same 6px mark, without motion, is the author label wherever
+  the agent wrote something. Filled when a measurement stands behind the
+  sentence; a ring when none does.
+- **Reads are silent.** Only writes are announced.
+- Under `prefers-reduced-motion`, the ring appears and disappears without
+  animation. Motion is never the only channel; the dot and the lamp are
+  static.
+
+## Autonomy
+
+Full prep is the single opinionated default and the only preparation state
+shown in the panel header. It prepares the current study and prior when a study
+opens, then carries out requested workflow changes without another prompt.
+
+The one exception is `Ask before viewer changes`, a checkbox inside
+Preferences. Enabling it changes the current state label to `Ask before changes`
+and presents Apply and Skip inline at the surface a write concerns. Disabling it
+returns to Full prep. There is no user-facing Auto-prep mode and no row of equal
+autonomy pills.
+
+Beside the current state, one sentence never changes: nothing reads the image,
+chooses its own coordinates, or signs. It describes the fixed clinical boundary;
+the preference changes only when workflow writes require confirmation.
+
+## Live surfaces
+
+A run emits writes over minutes while the reader is doing something else.
+These rules govern what the interface may do to them without being asked.
+
+### Scroll belongs to the reader
+
+A panel follows new entries only while it is already at the bottom. The
+moment the reader scrolls up, following stops, and it does not resume until
+they return to the bottom themselves. New entries arriving off screen are
+announced by a count, never by a jump. Nothing scrolls the reader's view
+during a run.
+
+### Stop exists from the moment the agent is committed
+
+Stop appears when the request is sent, not when the first write lands. The
+gap between those two is the window a reader is most likely to change their
+mind, and it is the one window where the agent is committed and the interface
+looks idle.
+
+### Transient failures wait before they speak
+
+A failed call holds for two seconds before it surfaces. A reconnect, a slow
+archive, or a retried request that recovers inside that window never appears
+at all. An error that reaches the reader is one the run did not recover from,
+because a red mark that flashes and clears teaches the reader to ignore red
+marks.
+
+### One action is not a burst
+
+Coalescing exists for a run of writes. A single write is stated directly, in
+past tense with its parameter, with no summary wrapper, no plan card, and no
+group. A summary that summarises one thing is longer than the thing.
 
 ## Copy
 
-- Sentence case.
-- Verbs first.
-- No exclamation marks.
-- Never say “AI” in the interface.
-- Say “Suggested,” never “generated.”
-- Say “Waiting for you,” never “Action required.”
-- Finished work is past tense. Only the action in flight is present progressive.
-- Product history never exposes raw tool names or reads.
-- A review reply belongs to one report sentence. An agent answer replaces only
-  that sentence, preserves the thread beneath it, and marks the exact reply it
-  answered; it never redraws the whole report over a human comment.
+Words are content, not decoration. Name things as the reader would.
 
-## Motion and attribution
+Never use: intelligent, smart, powerful, robust, seamless, effortlessly,
+instantly, automatically, magic, simply, just, AI. Each either claims the
+agent understood something, which it did not, or claims ease on the reader's
+behalf.
 
-Only writes animate. While a write is in flight, the agent mark may morph from
-a circle to a loop and cycle terse working verbs. At rest it is a static loop;
-it never shimmers. Coalesce a burst into one final effect. The 2 px viewport
-frame uses `agent/accent`, enters in `motion/enter`, holds long enough to be seen
-peripherally, and exits in `motion/exit`. Nothing glows, shimmers, or remains lit.
-Reduced motion uses a fade. The same `agent/mark` labels authored objects without
-motion.
+Prefer: suggested, proposed, confirmed, cited, uncited, drafted, matched,
+stopped, left out. Concrete verbs for concrete acts.
 
-## Definition of done
+Specificity is the trust signal. Use numerals for every quantity, always:
+`42 mm`, `2 proposals`, `14s ago`, `3 of 4`. Never spell a number out, and
+never replace one with a word like several, many, or a few.
 
-- A radiologist can complete scenarios S1 through S7 without the mouse.
-- The panel never shows a tool name.
-- The first visible feedback after a prompt is under 300 ms.
-- Every agent-authored thing carries `agent/mark`.
-- The state line is never wrong about whether the agent is waiting on the human.
-- Nothing on screen would surprise someone reading Linear's Agent Interaction
-  Guidelines for the first time.
-
-When the implementation drifts, fix the decision here and its semantic token,
-then update every consumer. Do not patch one screen with a local substitute.
+- Every step is a verb, a parameter, and a result, in that order. Not
+  `Hanging`, but `Hanging · current and prior`, resolving to
+  `Hung · current and prior · 1 by 2`. A step without its parameter is
+  decoration, because it cannot be audited.
+- State what happened in one sentence with links, not a list of calls.
+- Present tense only for the step currently running; everything finished is
+  past tense.
+- An empty surface offers the next action: "Label a target to propose it on
+  the prior."
+- A failure says what happened and what to do, in the interface's voice.
+- Numbers state consequences: "4 statements, 1 with no measurement behind
+  it," not "1 error."

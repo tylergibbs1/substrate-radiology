@@ -41,6 +41,7 @@ function ViewerLayout({
 
   const [hasRightPanels, setHasRightPanels] = useState(hasPanels('right'));
   const [hasLeftPanels, setHasLeftPanels] = useState(hasPanels('left'));
+  const [bottomPanels, setBottomPanels] = useState(panelService.getPanels('bottom'));
   const [leftPanelClosedState, setLeftPanelClosed] = useState(leftPanelClosed);
   const [rightPanelClosedState, setRightPanelClosed] = useState(rightPanelClosed);
 
@@ -133,6 +134,7 @@ function ViewerLayout({
       ({ options }) => {
         setHasLeftPanels(hasPanels('left'));
         setHasRightPanels(hasPanels('right'));
+        setBottomPanels(panelService.getPanels('bottom'));
         if (options?.leftPanelClosed !== undefined) {
           setLeftPanelClosed(options.leftPanelClosed);
         }
@@ -187,6 +189,7 @@ function ViewerLayout({
               <div className="flex h-full flex-1 flex-col">
                 <div
                   className="relative flex h-full flex-1 items-center justify-center overflow-hidden bg-black"
+                  style={{ backgroundColor: 'var(--substrate-surface-bed, #000000)' }}
                   onMouseEnter={handleMouseEnter}
                 >
                   <ViewportGridComp
@@ -195,6 +198,10 @@ function ViewerLayout({
                     commandsManager={commandsManager}
                   />
                 </div>
+                {bottomPanels.map(panel => {
+                  const BottomPanel = panel.content as React.ComponentType;
+                  return <BottomPanel key={panel.id} />;
+                })}
               </div>
             </ResizablePanel>
             {hasRightPanels ? (

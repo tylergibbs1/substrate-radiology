@@ -1,6 +1,6 @@
 import { findTargetSlice, placeProposal, type TargetInstance } from '../engine/place';
 import { autonomy } from '../engine/autonomy';
-import { getProposal, isCitable, reject as rejectProposal } from '../engine/proposals';
+import { isCitable, reject as rejectProposal } from '../engine/proposals';
 import {
   addVersion,
   clearReport,
@@ -14,8 +14,18 @@ import {
   signatureIsStale,
   type Sentence,
 } from '../engine/report';
-import { presence, summarize, type AgentViewportEffect } from './presence';
-import { refuse, type JsonObject, type JsonValue, type WebMcpTool } from './spec';
+import { observeTool } from './observeTool';
+import { createStudyInventory } from './studyInventory';
+import { refuse, type JsonObject, type WebMcpTool } from './spec';
+import {
+  acquiredOn,
+  activeDataSource,
+  CT_PRESETS,
+  describeMeasurement,
+  resolveViewerServices,
+  viewportReady,
+  type ViewerDependencies,
+} from './viewerContext';
 
 /**
  * The viewer tool surface.
@@ -34,540 +44,12 @@ import { refuse, type JsonObject, type JsonValue, type WebMcpTool } from './spec
  * spent on the signature instead.
  */
 
-type Deps = {
-  servicesManager: { services: Record<string, unknown> };
-  commandsManager: { runCommand: (name: string, options?: unknown) => unknown };
-  extensionManager: {
-    getActiveDataSource?: () => [DataSource?, ...unknown[]];
-    getActiveDataSourceOrNull?: () => DataSource | null;
-  };
-};
-
-/* ------------------------------------------------------------ services --- */
-
-type ViewportGridService = {
-  EVENTS?: { VIEWPORTS_READY?: string };
-  subscribe?: (eventName: string, callback: () => void) => { unsubscribe: () => void };
-  getState: () => {
-    activeViewportId: string;
-    viewports: Map<string, { displaySetInstanceUIDs?: string[] }>;
-    layout: { numRows: number; numCols: number };
-  };
-  setActiveViewportId: (id: string) => void;
-  setDisplaySetsForViewports: (
-    updates: { viewportId: string; displaySetInstanceUIDs: string[] }[]
-  ) => Promise<void>;
-};
-
-type DisplaySet = {
-  displaySetInstanceUID: string;
-  SeriesInstanceUID: string;
-  StudyInstanceUID: string;
-  SeriesDescription?: string;
-  SeriesNumber?: number;
-  Modality?: string;
-  SeriesDate?: string;
-  StudyDate?: string;
-  numImageFrames?: number;
-  isReconstructable?: boolean;
-  instances?: {
-    StudyDate?: string;
-    SeriesDate?: string;
-    ImagePositionPatient?: number[];
-    FrameOfReferenceUID?: string;
-    imageId?: string;
-    ImageOrientationPatient?: number[];
-    PixelSpacing?: number[];
-    SliceThickness?: number;
-    SpacingBetweenSlices?: number;
-    SliceLocation?: number;
-  }[];
-  imageIds?: string[];
-};
-
-/**
- * When this series was acquired.
- *
- * The date is the only thing that tells a prior from the current study, and it
- * is not on the display set — OHIF leaves it on the instances. A longitudinal
- * comparison built without it would silently compare the wrong two rounds.
- */
-function acquiredOn(displaySet: DisplaySet): string {
-  const instance = displaySet.instances?.[0];
-  return instance?.StudyDate ?? instance?.SeriesDate ?? displaySet.SeriesDate ?? '';
-}
-
-function orientationOf(displaySet: DisplaySet): string {
-  const values = displaySet.instances?.[0]?.ImageOrientationPatient;
-  if (!values || values.length < 6) return '';
-  const normal = [
-    values[1] * values[5] - values[2] * values[4],
-    values[2] * values[3] - values[0] * values[5],
-    values[0] * values[4] - values[1] * values[3],
-  ].map(Math.abs);
-  const axis = normal.indexOf(Math.max(...normal));
-  return axis === 0 ? 'sagittal' : axis === 1 ? 'coronal' : 'axial';
-}
-
-type DisplaySetService = {
-  getActiveDisplaySets: () => DisplaySet[];
-  getDisplaySetByUID: (uid: string) => DisplaySet | undefined;
-};
-
-type StudyQuery = {
-  studyInstanceUid?: string;
-  date?: string;
-  mrn?: string;
-};
-
-type SeriesQuery = {
-  studyInstanceUid?: string;
-  seriesInstanceUid?: string;
-  modality?: string;
-  seriesNumber?: string | number;
-  seriesDate?: string;
-  numSeriesInstances?: number;
-  description?: string;
-};
-
-type DataSource = {
-  query?: {
-    studies?: {
-      search?: (params: Record<string, unknown>) => Promise<StudyQuery[]>;
-    };
-    series?: {
-      search?: (studyInstanceUid: string) => Promise<SeriesQuery[]>;
-    };
-  };
-};
-
-type InventorySeries = {
-  studyUid: string;
-  studyDate: string;
-  seriesUid: string;
-  description: string;
-  modality: string;
-  seriesNumber: number;
-  imageCount: number;
-};
-
-type InventoryStudy = {
-  studyUid: string;
-  studyDate: string;
-  series: InventorySeries[];
-};
-
-type Measurement = {
-  uid: string;
-  label?: string;
-  displayText?: unknown;
-  referenceSeriesUID?: string;
-  referenceStudyUID?: string;
-  toolName?: string;
-  points?: number[][];
-  FrameOfReferenceUID?: string;
-  data?: unknown;
-  metadata?: {
-    referencedImageId?: string;
-    viewPlaneNormal?: number[];
-    viewUp?: number[];
-  };
-};
-
-type MeasurementService = {
-  getMeasurements: (filter?: (m: Measurement) => boolean) => Measurement[];
-  getMeasurement: (uid: string) => Measurement | undefined;
-  jumpToMeasurement: (viewportId: string, uid: string) => void;
-  update: (uid: string, measurement: Measurement, notYetUpdatedAtSource?: boolean) => unknown;
-};
-
-type TrackedMeasurementsService = {
-  getTrackedSeries: () => string[];
-};
-
-type CornerstoneViewportService = {
-  getCornerstoneViewport: (viewportId: string) =>
-    | {
-        element?: HTMLElement;
-        viewportStatus?: string;
-        getCurrentImageIdIndex?: () => number;
-        getProperties?: () => Record<string, unknown>;
-        setProperties?: (properties: Record<string, unknown>) => void;
-        getCamera?: () => Record<string, unknown>;
-        setCamera?: (camera: Record<string, unknown>) => void;
-        resetProperties?: () => void;
-        resetCamera?: () => void;
-        render?: () => void;
-      }
-    | undefined;
-  getOrientation?: (viewportId: string) => string;
-};
-
-type UndoAction = () => void | Promise<void>;
-
-function services(deps: Deps) {
-  const all = deps.servicesManager.services;
-  return {
-    viewportGrid: all.viewportGridService as ViewportGridService | undefined,
-    displaySet: all.displaySetService as DisplaySetService | undefined,
-    measurement: all.measurementService as MeasurementService | undefined,
-    tracked: all.trackedMeasurementsService as TrackedMeasurementsService | undefined,
-    cornerstone: all.cornerstoneViewportService as CornerstoneViewportService | undefined,
-  };
-}
-
-/**
- * The window/level presets, by the name a radiologist says out loud.
- *
- * These are OHIF's own CT values (extensions/cornerstone defaultWindowLevelPresets).
- * They are duplicated rather than read through the customization service on
- * purpose: the built-in setWindowLevelPreset command only ever acts on the
- * ACTIVE viewport and throws if that viewport is not yet rendered, which makes
- * it useless for "put lung windows on the prior". Substrate resolves the preset
- * itself and sets the window on the viewport it was actually asked about.
- */
-const CT_PRESETS = new Map<string, { window: number; level: number }>([
-  ['soft tissue', { window: 400, level: 40 }],
-  ['lung', { window: 1500, level: -600 }],
-  ['liver', { window: 150, level: 90 }],
-  ['bone', { window: 2500, level: 480 }],
-  ['brain', { window: 80, level: 40 }],
-]);
-
-/**
- * Wait until a viewport is actually usable.
- *
- * Changing the layout destroys and rebuilds viewport instances. Anything that
- * touches one in the gap gets Cornerstone's "The stack viewport has been
- * destroyed and is no longer usable" — thrown asynchronously during a later
- * render, so the tool call itself appears to succeed and a red overlay lands on
- * the radiologist's screen a moment afterwards. Waiting for the rebuilt
- * instance is the only reliable fix; retrying after the throw is too late.
- */
-async function viewportReady(
-  cornerstone: CornerstoneViewportService | undefined,
-  viewportId: string
-): Promise<boolean> {
-  if (!cornerstone) return true;
-  for (let attempt = 0; attempt < 40; attempt += 1) {
-    const viewport = cornerstone.getCornerstoneViewport(viewportId);
-    const status = viewport?.viewportStatus?.toLowerCase();
-    const settled = status === undefined || status === 'rendered' || status === 'prerender';
-    if (viewport?.element?.isConnected && settled) return true;
-    await new Promise(resolve => setTimeout(resolve, 50));
-  }
-  return false;
-}
-
-/* -------------------------------------------------------------- helpers --- */
-
-/** A study's series, described the way a radiologist would name them. */
-function describeSeries(displaySet: DisplaySet): JsonObject {
-  const instance = displaySet.instances?.[0];
-  return {
-    series_uid: displaySet.SeriesInstanceUID,
-    study_uid: displaySet.StudyInstanceUID,
-    display_set_id: displaySet.displaySetInstanceUID,
-    description: displaySet.SeriesDescription ?? '',
-    modality: displaySet.Modality ?? '',
-    // Sort timepoints by this. It is YYYYMMDD, so it sorts as a string.
-    study_date: acquiredOn(displaySet),
-    series_number: displaySet.SeriesNumber ?? 0,
-    image_count: displaySet.numImageFrames ?? 0,
-    reconstructable: Boolean(displaySet.isReconstructable),
-    orientation: orientationOf(displaySet),
-    image_orientation_patient: instance?.ImageOrientationPatient ?? [],
-    pixel_spacing_mm: instance?.PixelSpacing ?? [],
-    slice_spacing_mm: instance?.SpacingBetweenSlices ?? instance?.SliceThickness ?? null,
-  };
-}
-
-/**
- * A measurement, flattened for an agent.
- *
- * `displayText` is what OHIF puts on the annotation, which is the same string
- * the radiologist is looking at — so an agent quoting it in a report is
- * quoting the viewport rather than deriving a number of its own.
- */
-function describeMeasurement(
-  measurement: Measurement,
-  trackedSeries: string[],
-  displaySets: DisplaySet[] = []
-): JsonObject {
-  const value = measurement.displayText as { primary?: string[] } | string | undefined;
-  const primary =
-    typeof value === 'string'
-      ? value
-      : Array.isArray(value?.primary)
-        ? value.primary.join(' ')
-        : '';
-  const shown = displaySets.find(set => set.SeriesInstanceUID === measurement.referenceSeriesUID);
-  const referencedImageId = measurement.metadata?.referencedImageId ?? '';
-  const citable = isCitable(measurement.uid);
-  return {
-    measurement_id: measurement.uid,
-    label: measurement.label ?? '',
-    tool: measurement.toolName ?? '',
-    series_uid: measurement.referenceSeriesUID ?? '',
-    study_uid: measurement.referenceStudyUID ?? '',
-    value: primary,
-    tracked: trackedSeries.includes(measurement.referenceSeriesUID ?? '') && citable,
-    // A proposal is not yet a measurement. It is dashed on screen, it is not
-    // citable, and it says which measurement it was copied from.
-    proposed: proposalOf(measurement.uid)?.state === 'proposed',
-    citable,
-    copied_from: proposalOf(measurement.uid)?.sourceMeasurementId ?? '',
-    aligned: proposalOf(measurement.uid)?.aligned ?? true,
-    geometry: measurement.points ?? [],
-    referenced_image_id: referencedImageId,
-    slice_index: referencedImageId ? (shown?.imageIds?.indexOf(referencedImageId) ?? -1) : -1,
-    author: proposalOf(measurement.uid) ? 'agent' : 'radiologist',
-  };
-}
-
-function proposalOf(uid: string) {
-  return getProposal(uid);
-}
-
-function viewportEffects(
-  name: string,
-  input: JsonObject,
-  result: JsonValue
-): AgentViewportEffect[] {
-  if (typeof result !== 'object' || result === null) return [];
-  const row = result as JsonObject;
-  if (name === 'navigate') {
-    const viewportId = typeof row.viewport === 'string' ? row.viewport : '';
-    if (!viewportId) return [];
-    const label =
-      typeof row.slice_index === 'number'
-        ? `slice ${row.slice_index + 1}`
-        : typeof input.measurement_id === 'string'
-          ? 'measurement'
-          : 'position changed';
-    return [{ viewportId, label }];
-  }
-  if (name === 'set_display') {
-    const viewportId = typeof row.viewport === 'string' ? row.viewport : '';
-    const applied = Array.isArray(row.applied) ? row.applied.map(String).join(' · ') : '';
-    return viewportId ? [{ viewportId, label: applied || 'display changed' }] : [];
-  }
-  if (name === 'hang_layout') {
-    const panes = Array.isArray(row.panes) ? row.panes : [];
-    const label = `${String(row.rows)} × ${String(row.cols)} layout`;
-    return panes.flatMap(pane => {
-      if (typeof pane !== 'object' || pane === null) return [];
-      const viewportId = String((pane as JsonObject).viewport ?? '');
-      return viewportId ? [{ viewportId, label }] : [];
-    });
-  }
-  return [];
-}
-
-/**
- * Wrap a tool so every call is visible in the panel within a second, whether it
- * succeeded or not. An agent action nobody can see is the thing this product
- * exists to avoid.
- */
-function observed(
-  name: string,
-  entitiesOf: (input: JsonObject, result: JsonValue) => string[],
-  run: (
-    input: JsonObject,
-    signal?: AbortSignal,
-    setUndo?: (action: UndoAction) => void
-  ) => Promise<JsonValue>
-): (input: JsonObject, context?: { signal?: AbortSignal }) => Promise<JsonValue> {
-  return async (input, context) => {
-    const startedAt = Date.now();
-    const localController = new AbortController();
-    const stop = () => localController.abort();
-    const upstreamAbort = () => localController.abort();
-    if (context?.signal?.aborted) localController.abort();
-    else context?.signal?.addEventListener('abort', upstreamAbort, { once: true });
-    const callId = presence.begin(name, summarize(input ?? {}), startedAt, stop);
-    let undo: UndoAction | undefined;
-    const setUndo = (action: UndoAction) => {
-      let used = false;
-      undo = () => {
-        if (used) return;
-        used = true;
-        return action();
-      };
-    };
-    try {
-      const decision = await autonomy.authorize(
-        name,
-        summarize(input ?? {}),
-        localController.signal,
-        typeof input.viewport === 'string' ? input.viewport : undefined
-      );
-      if (decision === 'skip') {
-        const result = refuse(
-          localController.signal.aborted ? 'STOPPED' : 'DECLINED',
-          localController.signal.aborted
-            ? 'The radiologist stopped this change.'
-            : 'The radiologist declined this change.',
-          'Do not retry it unless the radiologist asks again.'
-        );
-        presence.finish(callId, {
-          tool: name,
-          argsSummary: summarize(input ?? {}),
-          resultSummary: String(result.message),
-          entities: [],
-          ok: false,
-          startedAt,
-          effects: [],
-        });
-        return result;
-      }
-      const result = await run(input ?? {}, localController.signal, setUndo);
-      const refused =
-        typeof result === 'object' && result !== null && (result as JsonObject).ok === false;
-      presence.finish(callId, {
-        tool: name,
-        argsSummary: summarize(input ?? {}),
-        resultSummary: refused ? String((result as JsonObject).message) : 'done',
-        entities: entitiesOf(input ?? {}, result),
-        ok: !refused,
-        startedAt,
-        effects: refused ? [] : viewportEffects(name, input ?? {}, result),
-        undo: refused ? undefined : undo,
-      });
-      return result;
-    } catch (error) {
-      presence.finish(callId, {
-        tool: name,
-        argsSummary: summarize(input ?? {}),
-        resultSummary: error instanceof Error ? error.message : 'failed',
-        entities: [],
-        ok: false,
-        startedAt,
-      });
-      throw error;
-    } finally {
-      context?.signal?.removeEventListener('abort', upstreamAbort);
-    }
-  };
-}
-
-/* ---------------------------------------------------------------- tools --- */
-
-export function buildViewerTools(deps: Deps): WebMcpTool[] {
-  const { viewportGrid, displaySet, measurement, tracked, cornerstone } = services(deps);
+export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
+  const { viewportGrid, displaySet, measurement, tracked, cornerstone } =
+    resolveViewerServices(deps);
   autonomy.setViewportResolver(() => viewportGrid?.getState().activeViewportId);
-  const dataSource =
-    deps.extensionManager.getActiveDataSourceOrNull?.() ??
-    deps.extensionManager.getActiveDataSource?.()?.[0];
-
+  const inventory = createStudyInventory(displaySet, activeDataSource(deps));
   const trackedSeries = () => tracked?.getTrackedSeries() ?? [];
-  let inventoryPromise: Promise<InventoryStudy[]> | null = null;
-
-  const activeInventory = (): InventoryStudy[] => {
-    const grouped = new Map<string, InventoryStudy>();
-    for (const set of displaySet?.getActiveDisplaySets() ?? []) {
-      const studyDate = acquiredOn(set);
-      const study = grouped.get(set.StudyInstanceUID) ?? {
-        studyUid: set.StudyInstanceUID,
-        studyDate,
-        series: [],
-      };
-      study.series.push({
-        studyUid: set.StudyInstanceUID,
-        studyDate,
-        seriesUid: set.SeriesInstanceUID,
-        description: set.SeriesDescription ?? '',
-        modality: set.Modality ?? '',
-        seriesNumber: Number(set.SeriesNumber ?? 0),
-        imageCount: set.numImageFrames ?? set.instances?.length ?? 0,
-      });
-      grouped.set(study.studyUid, study);
-    }
-    return [...grouped.values()];
-  };
-
-  /**
-   * Discover the same patient studies the OHIF study browser shows without
-   * instantiating their image data. `get_study` remains read-only; the selected
-   * prior is loaded only when `hang_layout` performs the write.
-   */
-  const studyInventory = async (): Promise<InventoryStudy[]> => {
-    if (inventoryPromise) {
-      const cached = await inventoryPromise;
-      // Mode entry happens before the route has finished hydrating its first
-      // display set. Do not make that initial empty snapshot permanent: once
-      // OHIF has an active study, rebuild the inventory and discover its priors.
-      if (cached.length > 0 || activeInventory().length === 0) return cached;
-      inventoryPromise = null;
-    }
-    inventoryPromise = (async () => {
-      const fallback = activeInventory();
-      const currentStudyUid = fallback[0]?.studyUid;
-      const searchStudies = dataSource?.query?.studies?.search;
-      const searchSeries = dataSource?.query?.series?.search;
-      if (!currentStudyUid || !searchStudies || !searchSeries) return fallback;
-
-      try {
-        const currentRows = await searchStudies({ studyInstanceUid: currentStudyUid });
-        const patientId = currentRows[0]?.mrn;
-        const studies = patientId
-          ? await searchStudies({ patientId, disableWildcard: true })
-          : currentRows;
-        const inventory = await Promise.all(
-          studies.map(async study => {
-            const studyUid = study.studyInstanceUid ?? '';
-            const rows = studyUid ? await searchSeries(studyUid) : [];
-            return {
-              studyUid,
-              studyDate: study.date ?? '',
-              series: rows
-                .filter(row => Boolean(row.seriesInstanceUid))
-                .map(row => ({
-                  studyUid,
-                  studyDate: study.date ?? row.seriesDate ?? '',
-                  seriesUid: row.seriesInstanceUid ?? '',
-                  description: row.description ?? '',
-                  modality: row.modality ?? '',
-                  seriesNumber: Number(row.seriesNumber ?? 0),
-                  imageCount: Number(row.numSeriesInstances ?? 0),
-                })),
-            };
-          })
-        );
-        return inventory
-          .filter(study => study.studyUid && study.series.length > 0)
-          .sort((a, b) => b.studyDate.localeCompare(a.studyDate));
-      } catch (error) {
-        console.warn('Substrate could not discover patient priors', error);
-        return fallback;
-      }
-    })();
-    return inventoryPromise;
-  };
-
-  const describeInventorySeries = (series: InventorySeries): JsonObject => {
-    const loaded = (displaySet?.getActiveDisplaySets() ?? []).find(
-      set => set.SeriesInstanceUID === series.seriesUid
-    );
-    return loaded
-      ? describeSeries(loaded)
-      : {
-          series_uid: series.seriesUid,
-          study_uid: series.studyUid,
-          display_set_id: '',
-          description: series.description,
-          modality: series.modality,
-          study_date: series.studyDate,
-          series_number: series.seriesNumber,
-          image_count: series.imageCount,
-          reconstructable: series.imageCount > 1,
-          loaded: false,
-          orientation: '',
-          image_orientation_patient: [],
-          pixel_spacing_mm: [],
-          slice_spacing_mm: null,
-        };
-  };
 
   const getContext: WebMcpTool = {
     name: 'get_context',
@@ -583,17 +65,17 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
       'what is on screen.',
     annotations: { readOnlyHint: true, untrustedContentHint: true },
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
-    execute: observed(
+    execute: observeTool(
       'get_context',
       () => [],
       async () => {
         const state = viewportGrid?.getState();
         const sets = displaySet?.getActiveDisplaySets() ?? [];
-        const inventory = await studyInventory();
-        const currentStudyUid = sets[0]?.StudyInstanceUID ?? inventory[0]?.studyUid ?? '';
+        const studies = await inventory.get();
+        const currentStudyUid = sets[0]?.StudyInstanceUID ?? studies[0]?.studyUid ?? '';
         const measurements = measurement?.getMeasurements() ?? [];
         const suggested =
-          inventory.length === 0
+          studies.length === 0
             ? ['Open a study from the study list.']
             : measurements.length === 0
               ? [
@@ -604,7 +86,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
                   'Call list_measurements to read back what the radiologist measured.',
                   'Call compare_with_prior once the same lesions are measured at both timepoints.',
                 ];
-        const timepoints = inventory
+        const timepoints = studies
           .map(study => study.studyDate)
           .filter(Boolean)
           .sort();
@@ -637,9 +119,9 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
                 awaiting_signature: pendingRequest()?.status === 'pending',
               }
             : null,
-          studies_open: inventory.length,
+          studies_open: studies.length,
           study_uid: currentStudyUid,
-          prior_timepoints: Math.max(0, inventory.length - 1),
+          prior_timepoints: Math.max(0, studies.length - 1),
           layout: state ? { rows: state.layout.numRows, cols: state.layout.numCols } : null,
           active_viewport: state?.activeViewportId ?? '',
           measurement_count: measurements.length,
@@ -684,12 +166,12 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
       },
       additionalProperties: false,
     },
-    execute: observed(
+    execute: observeTool(
       'get_study',
       () => [],
       async input => {
         const wanted = typeof input.study_uid === 'string' ? input.study_uid : '';
-        const studies = (await studyInventory()).filter(
+        const studies = (await inventory.get()).filter(
           study => !wanted || study.studyUid === wanted
         );
         if (studies.length === 0) {
@@ -705,7 +187,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
           studies: studies.map(study => ({
             study_uid: study.studyUid,
             study_date: study.studyDate,
-            series: study.series.map(describeInventorySeries),
+            series: study.series.map(inventory.describe),
           })),
         };
       }
@@ -719,7 +201,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
       'Returns every measurement in the viewer with its id, label, series, tool and the ' +
       'value as it appears on screen. Read-only. This is the only source of numbers for ' +
       'a report: you may quote these, and you may not derive measurements of your own. ' +
-      'Use tracked_only to get just the ones on a series the radiologist is tracking.',
+      'Use tracked_only to get only the ones on a series the radiologist is tracking.',
     annotations: { readOnlyHint: true, untrustedContentHint: true },
     inputSchema: {
       type: 'object',
@@ -735,7 +217,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
       },
       additionalProperties: false,
     },
-    execute: observed(
+    execute: observeTool(
       'list_measurements',
       () => [],
       async input => {
@@ -781,7 +263,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
       },
       additionalProperties: false,
     },
-    execute: observed(
+    execute: observeTool(
       'navigate',
       input => (typeof input.measurement_id === 'string' ? [input.measurement_id] : []),
       async (input, _signal, setUndo) => {
@@ -912,7 +394,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
       },
       additionalProperties: false,
     },
-    execute: observed(
+    execute: observeTool(
       'set_display',
       () => [],
       async (input, _signal, setUndo) => {
@@ -1054,7 +536,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
       },
       additionalProperties: false,
     },
-    execute: observed(
+    execute: observeTool(
       'hang_layout',
       () => [],
       async (input, _signal, setUndo) => {
@@ -1080,7 +562,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
         // hang they have to put back by hand.
         const requested = Array.isArray(input.viewports) ? input.viewports : [];
         let sets = displaySet?.getActiveDisplaySets() ?? [];
-        const inventory = await studyInventory();
+        const studies = await inventory.get();
         const resolved: {
           seriesUid: string;
           displaySetUid: string;
@@ -1115,7 +597,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
             );
           }
           if (!match) {
-            const discovered = inventory
+            const discovered = studies
               .flatMap(study => study.series)
               .find(candidate => candidate.seriesUid === seriesUid);
             if (discovered) {
@@ -1338,7 +820,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
       },
       additionalProperties: false,
     },
-    execute: observed(
+    execute: observeTool(
       'propose_measurement',
       input => (typeof input.from_measurement_id === 'string' ? [input.from_measurement_id] : []),
       async (input, _signal, setUndo) => {
@@ -1363,7 +845,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
         let targetStudy = String(input.target_study_uid ?? '');
         if (!targetStudy && typeof input.target_timepoint === 'string') {
           const wanted = input.target_timepoint;
-          const studies = await studyInventory();
+          const studies = await inventory.get();
           targetStudy =
             studies.find(study => study.studyUid === wanted || study.studyDate === wanted)
               ?.studyUid ?? '';
@@ -1505,7 +987,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
       },
       additionalProperties: false,
     },
-    execute: observed(
+    execute: observeTool(
       'compare_with_prior',
       () => [],
       async input => {
@@ -1676,7 +1158,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
       },
       additionalProperties: false,
     },
-    execute: observed(
+    execute: observeTool(
       'draft_report',
       () => [],
       async (input, _signal, setUndo) => {
@@ -1785,7 +1267,12 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
             sentenceId,
             section: String(entry.section ?? 'Findings'),
             text,
-            author: { type: 'agent', label: 'your agent' },
+            author: {
+              type: 'agent',
+              label: 'your agent',
+              owner: 'active-reader',
+              delegate: 'substrate',
+            },
             provenance: cites.map(id => ({ measurementId: id })),
             replacesSentenceId,
             replies: (replaced?.replies ?? []).map(reply =>
@@ -1804,7 +1291,12 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
         const version = await addVersion(
           String(input.template ?? 'report'),
           sentences,
-          { type: 'agent', label: 'your agent' },
+          {
+            type: 'agent',
+            label: 'your agent',
+            owner: 'active-reader',
+            delegate: 'substrate',
+          },
           typeof input.note_to_signer === 'string' ? input.note_to_signer : undefined
         );
         setUndo?.(() => {
@@ -1853,7 +1345,7 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
       },
       additionalProperties: false,
     },
-    execute: observed(
+    execute: observeTool(
       'request_signature',
       () => [],
       async (input, _signal, setUndo) => {
