@@ -33,6 +33,9 @@ export const token = {
   'autonomy/auto-prep': 'Auto-prep',
   'autonomy/full-prep': 'Full prep',
 
+  'panel/work': 'Work',
+  'panel/details': 'Details',
+
   'surface/room': '#040404',
   'surface/bed': '#101014',
   'surface/panel': '#1c1c1c',
@@ -95,6 +98,7 @@ export const token = {
 
 export type SessionState = 'idle' | 'working' | 'waiting-for-you' | 'done' | 'error';
 export type AutonomyLevel = 'assist' | 'auto-prep' | 'full-prep';
+export type AgentPanelView = 'work' | 'details';
 export type ReviewState = 'unreviewed' | 'accepted' | 'rejected' | 'stale';
 export type SurfaceSystem = 'bench' | 'plate';
 export type SurfaceElevation = 'flush' | 'raised';

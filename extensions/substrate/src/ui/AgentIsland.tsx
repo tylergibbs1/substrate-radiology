@@ -255,8 +255,6 @@ export function AgentIsland({
       .substrate-island button, .substrate-island input, .substrate-island textarea, .substrate-island select { font-weight: 400; }
       .substrate-thinking-label { color: ${token['ink/low']}; background: linear-gradient(90deg, ${token['ink/low']} 20%, ${token['ink/high']} 50%, ${token['ink/low']} 80%); background-size: 200% 100%; background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; animation: substrate-thinking-shimmer ${token['motion/shimmer']}ms linear infinite; }
       .substrate-state-copy { animation: substrate-state-copy-in ${token['motion/state-copy']}ms ease-out both; }
-      .substrate-autonomy-pill { min-height: 30px; padding: 4px 9px; color: ${token['ink/low']}; background: transparent; border: 1px solid ${token['on/disabled']}; border-radius: ${token['radius/full']}; font: ${token['text/ui']}; white-space: nowrap; cursor: pointer; }
-      .substrate-autonomy-pill[aria-pressed='true'] { color: ${token['on/signal']}; background: ${token['agent/mark']}; border-color: ${token['agent/mark']}; }
       .substrate-island button:focus-visible, .substrate-island input:focus-visible, .substrate-island textarea:focus-visible, .substrate-island select:focus-visible, .substrate-island summary:focus-visible { outline: 1px solid ${token['ink/low']}; outline-offset: 2px; }
       .substrate-control { transition: border-color ${token['motion/enter']}ms ease-out, color ${token['motion/enter']}ms ease-out, background-color ${token['motion/enter']}ms ease-out, transform ${token['motion/exit']}ms ease-out; }
       .substrate-control:hover { border-color: ${token['ink/low']} !important; }

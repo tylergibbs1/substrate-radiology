@@ -73,6 +73,10 @@ spacing:
   section: 48px
   room: 80px
 components:
+  panel-route:
+    main: work
+    secondary: details
+    detailsSections: preferences, timing, connection
   card:
     backgroundColor: "{colors.surface-card}"
     textColor: "{colors.on-surface}"
@@ -402,6 +406,11 @@ Tables are evidence:
 
 ## Components
 
+- **Panel route:** The docked panel has two views, `work` and `details`. Work
+  contains agent state, findings/report, suggested measurements, and recent
+  work. One `Details` row at the bottom enters the secondary view. Details owns
+  Preferences, Timing, and Connection beneath a Back/Details header. Disclosure
+  state survives navigation between the two views.
 - **Card:** Ink surface, 20px radius, 40px padding, no border, no shadow.
   Takes one shape option, `raised` or `flush`. Flush drops the radius and the
   padding so the same content can render inside a host container, which is
@@ -450,6 +459,9 @@ Tables are evidence:
   type size.
 - Do size repeated rows as one layout with shared lanes, so a long label can
   never move a value.
+- Do keep preparation opinionated: Full prep is the default, and the only
+  user-facing mode exception is `Ask before changes` under Details >
+  Preferences. Auto-prep remains an engine state, not a daily sidebar choice.
 - Don't add eyebrows, section counters, all-caps labels, or attribute names
   in front of values. If a row needs a word to explain what it is, the row
   is wrong.
@@ -469,8 +481,9 @@ Tables are evidence:
 - Don't build a composer, a tool list, or a call count. The browser has them.
 - Don't leave a hue anywhere in the host chrome.
 - Don't show the strip and the panel at the same time.
-- Don't render only the selected level of the dial. All three stay visible or
-  the mode is invisible.
+- Don't put Preferences, Timing, or Connection disclosures in the work view.
+  They live one level down in Details and keep their disclosure state when the
+  reader returns.
 - Don't merge the affirmation into the signer field.
 - Don't load a typeface from a third-party origin. Bundle it, because the
   reading network will not reach one.

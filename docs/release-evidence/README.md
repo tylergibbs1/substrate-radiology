@@ -24,8 +24,17 @@ was used.
 - `prefers-reduced-motion: reduce` disables Substrate animation and transition
   rules.
 
+## Sidebar routes
+
+- [`sidebar-work-view.png`](./sidebar-work-view.png) shows the primary clinical
+  workflow with one Details entry point and no diagnostic disclosures.
+- [`sidebar-details-view.png`](./sidebar-details-view.png) shows Preferences,
+  Timing, and Connection in the secondary view.
+- Browser acceptance confirmed that disclosure state is preserved after
+  returning to the work view and reopening Details.
+
 ## Build budget
 
 The extension remains a single UMD product boundary. Its production artifact is
-`259 KiB`, under the explicit `272 KiB` UMD budget. Crossing that measured budget
+`261 KiB`, under the explicit `272 KiB` UMD budget. Crossing that measured budget
 restores webpack's asset and entrypoint warnings.
