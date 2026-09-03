@@ -1,0 +1,22 @@
+{
+  "patientName": "SUBSTRATE^DEMO",
+  "patientId": "SUBSTRATE-DEMO",
+  "series": [
+    {
+      "role": "prior",
+      "studyInstanceUID": "1.2.840.113654.2.55.8790539037983910932933668152636658031",
+      "seriesInstanceUID": "1.2.840.113654.2.55.297188825848849138708491937791320762236",
+      "instanceCount": 149,
+      "collectionId": "nlst",
+      "license": "CC BY 4.0"
+    },
+    {
+      "role": "current",
+      "studyInstanceUID": "1.2.840.113654.2.55.302957049620416109572494829313844992999",
+      "seriesInstanceUID": "1.2.840.113654.2.55.60458735496393490723304567091309771081",
+      "instanceCount": 158,
+      "collectionId": "nlst",
+      "license": "CC BY 4.0"
+    }
+  ]
+}
