@@ -125,6 +125,34 @@ export function AgentIsland({
   }
 
   return (
+    <>
+      {/* Bottom-left: always on screen, and clear of OHIF's toolbar and of the
+          viewport corners where Cornerstone draws its own overlays. */}
+      <div
+        style={{
+          position: 'fixed',
+          left: 'max(12px, env(safe-area-inset-left))',
+          bottom: 'max(20px, env(safe-area-inset-bottom))',
+          zIndex: 1050,
+          pointerEvents: 'none',
+          maxWidth: 220,
+        }}
+      >
+        <span
+          style={{
+            ...glass,
+            display: 'inline-block',
+            borderRadius: 10,
+            padding: '5px 10px',
+            fontSize: 10.5,
+            lineHeight: 1.4,
+            opacity: 0.75,
+          }}
+        >
+          Research use only. Not for clinical diagnosis. Public de-identified imaging.
+        </span>
+      </div>
+
     <div
       style={{
         position: 'fixed',
@@ -329,5 +357,6 @@ export function AgentIsland({
         ) : null}
       </div>
     </div>
+    </>
   )
 }
