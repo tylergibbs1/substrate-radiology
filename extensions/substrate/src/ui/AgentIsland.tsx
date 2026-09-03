@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react'
 
+import { accept, getProposals, reject, subscribeProposals } from '../engine/proposals'
 import { presence, type ToolCallEvent } from '../webmcp/presence'
 
 /**
@@ -41,18 +42,45 @@ function relative(ms: number): string {
   return `${minutes}m ago`
 }
 
-export function AgentIsland(): React.ReactElement | null {
+export function AgentIsland({
+  services,
+}: {
+  services: Record<string, unknown>
+}): React.ReactElement | null {
   const [, tick] = useState(0)
   const [open, setOpen] = useState(false)
 
   useEffect(() => {
     const off = presence.subscribe(() => tick((value) => value + 1))
+    const offProposals = subscribeProposals(() => tick((value) => value + 1))
     const timer = setInterval(() => tick((value) => value + 1), 1000)
     return () => {
       off()
+      offProposals()
       clearInterval(timer)
     }
   }, [])
+
+  const pending = getProposals().filter((entry) => entry.state === 'proposed')
+
+  /** Repaint after a decision, so the mark changes the instant it is made. */
+  const repaint = () => {
+    const viewportService = services.cornerstoneViewportService as
+      | { getRenderingEngine?: () => { render?: () => void } | undefined }
+      | undefined
+    viewportService?.getRenderingEngine?.()?.render?.()
+  }
+
+  const show = (annotationUID: string) => {
+    const grid = services.viewportGridService as
+      | { getState?: () => { activeViewportId: string } }
+      | undefined
+    const measurementService = services.measurementService as
+      | { jumpToMeasurement?: (viewportId: string, uid: string) => void }
+      | undefined
+    const viewportId = grid?.getState?.().activeViewportId
+    if (viewportId) measurementService?.jumpToMeasurement?.(viewportId, annotationUID)
+  }
 
   const registration = presence.getRegistration()
   const last: ToolCallEvent | null = presence.getLast()
@@ -112,7 +140,7 @@ export function AgentIsland(): React.ReactElement | null {
         style={{
           ...glass,
           pointerEvents: 'auto',
-          borderRadius: open ? 18 : 999,
+          borderRadius: open || pending.length > 0 ? 18 : 999,
           maxWidth: 'min(560px, calc(100vw - 32px))',
           overflow: 'hidden',
           transition: 'border-radius 160ms ease-out',
@@ -164,6 +192,104 @@ export function AgentIsland(): React.ReactElement | null {
             </span>
           ) : null}
         </button>
+
+        {pending.length > 0 ? (
+          <div
+            style={{
+              borderTop: '1px solid rgba(255,255,255,0.08)',
+              padding: '8px 10px 10px',
+            }}
+          >
+            <p style={{ margin: '0 0 6px', fontSize: 11.5, opacity: 0.6 }}>
+              {pending.length === 1
+                ? 'The agent copied a measurement onto another timepoint. It is not part of any report until you accept it.'
+                : `The agent copied ${pending.length} measurements onto another timepoint. None of them count until you accept them.`}
+            </p>
+            <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+              {pending.map((proposal) => (
+                <li
+                  key={proposal.annotationUID}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 8,
+                    padding: '5px 0',
+                    fontSize: 12,
+                  }}
+                >
+                  <span
+                    aria-hidden
+                    style={{
+                      width: 7,
+                      height: 7,
+                      flexShrink: 0,
+                      borderRadius: 999,
+                      background: 'rgb(251, 191, 36)',
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => show(proposal.annotationUID)}
+                    style={{
+                      flex: 1,
+                      minWidth: 0,
+                      textAlign: 'left',
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'inherit',
+                      font: 'inherit',
+                      fontSize: 12,
+                      cursor: 'pointer',
+                      padding: 0,
+                    }}
+                    title="Show me where this is"
+                  >
+                    {proposal.aligned
+                      ? 'Copied to the matching slice'
+                      : `Nearest slice, ${proposal.offsetMm}mm off — worth checking`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      accept(proposal.annotationUID)
+                      repaint()
+                    }}
+                    style={{
+                      background: 'rgba(255,255,255,0.12)',
+                      border: '1px solid rgba(255,255,255,0.18)',
+                      borderRadius: 999,
+                      color: 'inherit',
+                      font: 'inherit',
+                      fontSize: 11.5,
+                      padding: '3px 10px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Accept
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      reject(proposal.annotationUID)
+                      repaint()
+                    }}
+                    style={{
+                      background: 'transparent',
+                      border: 'none',
+                      color: 'rgba(255,255,255,0.5)',
+                      font: 'inherit',
+                      fontSize: 11.5,
+                      padding: '3px 4px',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Discard
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
 
         {open && events.length > 0 ? (
           <ul

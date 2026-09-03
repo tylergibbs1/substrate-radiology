@@ -38,11 +38,19 @@ const substrateExtension = {
       await Promise.resolve()
     }
 
+    // A development handle. OHIF does not expose its services on window, and
+    // every probe of live viewer state needs them. Namespaced so it cannot
+    // collide, and read-only in the sense that nothing in the product reads it.
+    ;(window as unknown as { substrate?: unknown }).substrate = {
+      services: servicesManager.services,
+      commands: commandsManager,
+    }
+
     controller = new AbortController()
     const tools = buildViewerTools({ servicesManager, commandsManager, extensionManager })
     const result: RegistrationResult = await register(tools, controller.signal)
     presence.setRegistration(result)
-    mountAgentIsland()
+    mountAgentIsland(servicesManager.services)
   },
 
   onModeExit: (): void => {

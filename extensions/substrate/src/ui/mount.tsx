@@ -16,7 +16,7 @@ const CONTAINER_ID = 'substrate-agent-island'
 
 let root: Root | null = null
 
-export function mountAgentIsland(): void {
+export function mountAgentIsland(services: Record<string, unknown>): void {
   if (typeof document === 'undefined' || root) return
   let container = document.getElementById(CONTAINER_ID)
   if (!container) {
@@ -25,7 +25,7 @@ export function mountAgentIsland(): void {
     document.body.appendChild(container)
   }
   root = createRoot(container)
-  root.render(<AgentIsland />)
+  root.render(<AgentIsland services={services} />)
 }
 
 export function unmountAgentIsland(): void {

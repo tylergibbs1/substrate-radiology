@@ -1,3 +1,5 @@
+import { findTargetSlice, placeProposal, type TargetInstance } from '../engine/place'
+import { accept, getProposal, getProposals, isCitable } from '../engine/proposals'
 import { presence, summarize } from './presence'
 import { refuse, type JsonObject, type JsonValue, type WebMcpTool } from './spec'
 
@@ -49,7 +51,14 @@ type DisplaySet = {
   StudyDate?: string
   numImageFrames?: number
   isReconstructable?: boolean
-  instances?: { StudyDate?: string; SeriesDate?: string }[]
+  instances?: {
+    StudyDate?: string
+    SeriesDate?: string
+    ImagePositionPatient?: number[]
+    FrameOfReferenceUID?: string
+    imageId?: string
+  }[]
+  imageIds?: string[]
 }
 
 /**
@@ -76,8 +85,14 @@ type Measurement = {
   referenceSeriesUID?: string
   referenceStudyUID?: string
   toolName?: string
+  points?: number[][]
+  FrameOfReferenceUID?: string
   data?: unknown
-  metadata?: { referencedImageId?: string }
+  metadata?: {
+    referencedImageId?: string
+    viewPlaneNormal?: number[]
+    viewUp?: number[]
+  }
 }
 
 type MeasurementService = {
@@ -190,7 +205,17 @@ function describeMeasurement(
     study_uid: measurement.referenceStudyUID ?? '',
     value: primary,
     tracked: trackedSeries.includes(measurement.referenceSeriesUID ?? ''),
+    // A proposal is not yet a measurement. It is dashed on screen, it is not
+    // citable, and it says which measurement it was copied from.
+    proposed: proposalOf(measurement.uid)?.state === 'proposed',
+    citable: isCitable(measurement.uid),
+    copied_from: proposalOf(measurement.uid)?.sourceMeasurementId ?? '',
+    aligned: proposalOf(measurement.uid)?.aligned ?? true,
   }
+}
+
+function proposalOf(uid: string) {
+  return getProposal(uid)
 }
 
 /**
@@ -661,5 +686,256 @@ export function buildViewerTools(deps: Deps): WebMcpTool[] {
     }),
   }
 
-  return [getContext, getStudy, listMeasurements, navigate, setDisplay, hangLayout]
+
+  const proposeMeasurement: WebMcpTool = {
+    name: 'propose_measurement',
+    title: 'Copy a measurement onto another timepoint',
+    description:
+      'Takes a measurement the radiologist already made and draws a COPY of it on ' +
+      'another study at the matching anatomical position, so the same lesion can be ' +
+      'measured again at the next timepoint. The copy appears dashed and is a proposal, ' +
+      'not a measurement: it is not citable in a report until the radiologist accepts ' +
+      'it, and they will usually adjust it first. ' +
+      'It is placed by geometry alone. Nothing here looks at the image, and it does not ' +
+      'decide whether the lesion is still there or how big it is now — only a person can ' +
+      'do that. It refuses without a source measurement, because there is no way for you ' +
+      'to propose a measurement of your own.',
+    inputSchema: {
+      type: 'object',
+      required: ['from_measurement_id', 'target_study_uid'],
+      properties: {
+        from_measurement_id: {
+          type: 'string',
+          description: 'A measurement_id from list_measurements. This is what gets copied.',
+        },
+        target_study_uid: {
+          type: 'string',
+          description: 'The study to copy it onto, from get_study. Usually the prior.',
+        },
+        label: {
+          type: 'string',
+          description: 'What to call it, for example "target 1". Copied from the source if omitted.',
+        },
+      },
+      additionalProperties: false,
+    },
+    execute: observed(
+      'propose_measurement',
+      (input) =>
+        typeof input.from_measurement_id === 'string' ? [input.from_measurement_id] : [],
+      async (input) => {
+        const sourceId = String(input.from_measurement_id ?? '')
+        const source = measurement?.getMeasurement(sourceId)
+        if (!source) {
+          return refuse(
+            'NEEDS_SOURCE',
+            'There is no measurement with that id to copy.',
+            'Call list_measurements first. You can only propose a copy of a measurement ' +
+              'the radiologist already made; you cannot place one of your own.'
+          )
+        }
+        if (!source.points || source.points.length === 0) {
+          return refuse(
+            'NO_GEOMETRY',
+            'That measurement has no geometry to copy.',
+            'Pick a measurement drawn on an image, such as a length or a bidirectional.'
+          )
+        }
+
+        const targetStudy = String(input.target_study_uid ?? '')
+        if (targetStudy === source.referenceStudyUID) {
+          return refuse(
+            'SAME_STUDY',
+            'That is the study the measurement is already on.',
+            'Pass the other timepoint, from get_study.'
+          )
+        }
+
+        // The target series: the largest reconstruction in that study, which is
+        // the diagnostic one rather than a scout or a derived object.
+        const candidates = (displaySet?.getActiveDisplaySets() ?? []).filter(
+          (entry) => entry.StudyInstanceUID === targetStudy
+        )
+        const target = candidates
+          .filter((entry) => (entry.numImageFrames ?? 0) > 1)
+          .sort((a, b) => (b.numImageFrames ?? 0) - (a.numImageFrames ?? 0))[0]
+        if (!target) {
+          return refuse(
+            'NO_TARGET_SERIES',
+            'That study has no multi-slice series to copy onto.',
+            'Check get_study for the studies that are loaded and their image counts.'
+          )
+        }
+
+        const instances: TargetInstance[] = (target.instances ?? [])
+          .map((instance, index) => ({
+            imageId: target.imageIds?.[index] ?? instance.imageId ?? '',
+            position: (instance.ImagePositionPatient ?? []) as [number, number, number],
+            frameOfReferenceUID: instance.FrameOfReferenceUID ?? '',
+          }))
+          .filter((entry) => entry.imageId !== '' && entry.position.length === 3)
+        if (instances.length === 0) {
+          return refuse(
+            'NO_POSITIONS',
+            'The target series does not carry image positions, so the copy cannot be placed.',
+            'Without ImagePositionPatient there is no way to know which slice matches, and ' +
+              'guessing would put the mark in the wrong place.'
+          )
+        }
+
+        const normal = source.metadata?.viewPlaneNormal ?? [0, 0, -1]
+        const placement = findTargetSlice(
+          source.points[0],
+          source.FrameOfReferenceUID ?? '',
+          normal,
+          instances
+        )
+        if (!placement) {
+          return refuse(
+            'NO_MATCHING_SLICE',
+            'No slice in the target study matches that position.',
+            'The two studies may not overlap anatomically.'
+          )
+        }
+
+        const label = String(input.label ?? source.label ?? 'proposed')
+        const annotationUID = placeProposal(
+          {
+            uid: source.uid,
+            toolName: source.toolName ?? 'Length',
+            points: source.points,
+            label: source.label,
+            FrameOfReferenceUID: source.FrameOfReferenceUID ?? '',
+            metadata: {
+              viewPlaneNormal: source.metadata?.viewPlaneNormal,
+              viewUp: source.metadata?.viewUp,
+            },
+          },
+          placement,
+          {
+            seriesUID: target.SeriesInstanceUID,
+            studyUID: target.StudyInstanceUID,
+            frameOfReferenceUID: instances[0].frameOfReferenceUID,
+          },
+          label
+        )
+
+        return {
+          proposal_id: annotationUID,
+          copied_from: source.uid,
+          label,
+          target_study_uid: target.StudyInstanceUID,
+          target_series_uid: target.SeriesInstanceUID,
+          offset_mm: placement.offsetMm,
+          aligned: placement.aligned,
+          state: 'proposed',
+          note: placement.aligned
+            ? 'Placed at the matching position. The radiologist accepts or adjusts it.'
+            : 'The two studies do not share a frame of reference, so this is a nearest-slice ' +
+              'estimate. It is worth checking before accepting.',
+        }
+      }
+    ),
+  }
+
+  const compareWithPrior: WebMcpTool = {
+    name: 'compare_with_prior',
+    title: 'Change between timepoints',
+    description:
+      'Pairs up measurements that share a label across studies and reports the change ' +
+      'between them. Read-only. It uses only measurements the radiologist made or ' +
+      'accepted — a proposal nobody has accepted is left out and reported as unmatched, ' +
+      'because an unconfirmed mark is not evidence of anything.',
+    annotations: { readOnlyHint: true },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        labels: {
+          type: 'array',
+          description: 'Only compare these labels. Omit to compare everything labelled.',
+          items: { type: 'string' },
+        },
+      },
+      additionalProperties: false,
+    },
+    execute: observed('compare_with_prior', () => [], async (input) => {
+      const wanted = Array.isArray(input.labels)
+        ? new Set(input.labels.map((entry) => String(entry)))
+        : null
+      const all = measurement?.getMeasurements() ?? []
+      const sets = displaySet?.getActiveDisplaySets() ?? []
+      const dateOf = (studyUid: string) => {
+        const match = sets.find((entry) => entry.StudyInstanceUID === studyUid)
+        return match ? acquiredOn(match) : ''
+      }
+
+      const citable = all.filter((entry) => isCitable(entry.uid))
+      const skipped = all.filter((entry) => !isCitable(entry.uid))
+
+      const byLabel = new Map<string, { date: string; value: string; id: string }[]>()
+      for (const entry of citable) {
+        const label = (entry.label ?? '').trim()
+        if (!label) continue
+        if (wanted && !wanted.has(label)) continue
+        const rows = byLabel.get(label) ?? []
+        rows.push({
+          date: dateOf(entry.referenceStudyUID ?? ''),
+          value: describeMeasurement(entry, trackedSeries()).value as string,
+          id: entry.uid,
+        })
+        byLabel.set(label, rows)
+      }
+
+      const compared = [...byLabel.entries()].map(([label, rows]) => {
+        const ordered = [...rows].sort((a, b) => a.date.localeCompare(b.date))
+        const numbers = ordered.map((row) => Number.parseFloat(row.value))
+        const first = numbers[0]
+        const last = numbers[numbers.length - 1]
+        const measurable =
+          ordered.length > 1 && Number.isFinite(first) && Number.isFinite(last)
+        // A copy that has never been displayed has no computed size yet:
+        // Cornerstone works its stats out when it draws. Saying "only one
+        // timepoint measured" would be wrong and would hide a real next step.
+        const awaitingDisplay =
+          ordered.length > 1 && ordered.some((row) => !Number.isFinite(Number.parseFloat(row.value)))
+        return {
+          label,
+          timepoints: ordered.map((row) => ({ date: row.date, value: row.value, measurement_id: row.id })),
+          change_mm: measurable ? Math.round((last - first) * 10) / 10 : null,
+          // Said in words as well, because "+2.1" needs a direction to mean
+          // anything to a reader.
+          change: measurable
+            ? last > first
+              ? `larger by ${Math.round((last - first) * 10) / 10} mm`
+              : last < first
+                ? `smaller by ${Math.round((first - last) * 10) / 10} mm`
+                : 'unchanged'
+            : awaitingDisplay
+              ? 'the copy has not been opened and re-measured yet, so there is no size to compare'
+              : 'only one timepoint measured',
+        }
+      })
+
+      return {
+        compared,
+        unmatched: compared.filter((row) => row.timepoints.length < 2).map((row) => row.label),
+        not_yet_accepted: skipped.length,
+        note:
+          skipped.length > 0
+            ? `${skipped.length} proposal(s) are not included because nobody has accepted them yet.`
+            : '',
+      }
+    }),
+  }
+
+  return [
+    getContext,
+    getStudy,
+    listMeasurements,
+    navigate,
+    setDisplay,
+    hangLayout,
+    proposeMeasurement,
+    compareWithPrior,
+  ]
 }
