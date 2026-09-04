@@ -33,7 +33,13 @@ export type ViewportGridService = {
   };
   setActiveViewportId: (id: string) => void;
   setDisplaySetsForViewports: (
-    updates: { viewportId: string; displaySetInstanceUIDs: string[] }[]
+    updates: {
+      viewportId: string;
+      displaySetInstanceUIDs: string[];
+      viewportOptions?: {
+        initialImageOptions?: { preset: 'middle'; useOnce?: boolean };
+      };
+    }[]
   ) => Promise<void>;
 };
 

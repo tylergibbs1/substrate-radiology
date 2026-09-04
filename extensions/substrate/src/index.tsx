@@ -22,9 +22,9 @@ import type { ViewerDependencies } from './webmcp/viewerContext';
  * out of the agent's own judgment.
  *
  * The tools live on the mode, not on the app. They are registered in
- * `onModeEnter` against a single AbortController and torn down in
- * `onModeExit`, because registering a duplicate name throws InvalidStateError —
- * so there must never be two controllers alive at once.
+ * `onModeEnter` and torn down in `onModeExit`. WebMCP registration has a
+ * separate AbortController from viewer work: a blocked or partially registered
+ * tool surface must never cancel the comparison hang or disturb OHIF.
  */
 
 type ModeDependencies = Omit<ViewerDependencies, 'sessionSignal'>;
@@ -34,6 +34,7 @@ type ModeSession = {
   controller: AbortController;
   generation: number;
   presenceSessionId: number;
+  registrationController: AbortController;
   services: Record<string, unknown>;
 };
 
@@ -198,24 +199,24 @@ function showRegistrationState(session: ModeSession, result: RegistrationResult)
 async function bootstrapSubstrateMode(session: ModeSession, deps: ModeDependencies): Promise<void> {
   const signal = session.controller.signal;
   const tools = buildViewerTools({ ...deps, sessionSignal: signal });
-  const result: RegistrationResult = await register(tools, signal);
+  // Preparation is a viewer concern. Start it without waiting for WebMCP so a
+  // blocked connection can change status, but can never hold the images hostage.
+  if (token['prep/agent-independent']) void runFullPrep(tools, signal);
+
+  const result: RegistrationResult = await register(tools, session.registrationController.signal);
   if (activeSession !== session || signal.aborted) return;
 
   showRegistrationState(session, result);
   if (!result.ok) {
-    // Registration is transactional from the mode's perspective. Aborting the
-    // shared registration signal removes any tools accepted before a failure.
-    if (result.registered.length > 0) session.controller.abort();
+    // Registration is transactional from the mode's perspective. Its own
+    // signal cleans up tools without aborting Full prep or viewer tool calls.
+    session.registrationController.abort();
     return;
   }
   if (result.registered.length !== tools.length) {
-    session.controller.abort();
+    session.registrationController.abort();
     return;
   }
-
-  // Full prep is part of the connected Substrate mode. It must not run when
-  // WebMCP is unavailable or when only a partial surface was registered.
-  void runFullPrep(tools, signal);
 }
 
 function reportBootstrapFailure(session: ModeSession, error: unknown): void {
@@ -226,7 +227,7 @@ function reportBootstrapFailure(session: ModeSession, error: unknown): void {
     registered: [],
     failure: { kind: 'unknown', message },
   });
-  session.controller.abort();
+  session.registrationController.abort();
 }
 
 /** Add the Substrate WebMCP surface to the active OHIF viewer lifecycle. */
@@ -240,6 +241,7 @@ export function enterSubstrateMode(deps: ModeDependencies): void {
     controller: new AbortController(),
     generation: nextGeneration++,
     presenceSessionId: presence.beginSession(),
+    registrationController: new AbortController(),
     services: deps.servicesManager.services,
   };
   activeSession = session;
@@ -253,6 +255,7 @@ export function exitSubstrateMode(): void {
   nextGeneration += 1;
   if (session) {
     session.controller.abort();
+    session.registrationController.abort();
     if (session.activationTimer !== null) window.clearTimeout(session.activationTimer);
     panelServiceOf(session.services)?.reset?.();
     presence.endSession(session.presenceSessionId);

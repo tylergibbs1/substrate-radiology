@@ -85,6 +85,8 @@ export const token = {
   'history/row-height': '36px',
   'history/fade-oldest': 0.55,
   'history/fade-next': 0.78,
+  'prep/agent-independent': true,
+  'hang/initial-stack-position': 'midpoint',
   'layout/panel-width': '320px',
   'layout/panel-shell-header-height': '44px',
   'layout/panel-tab-target': '44px',

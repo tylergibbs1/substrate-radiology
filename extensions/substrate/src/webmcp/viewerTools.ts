@@ -1,5 +1,6 @@
 import { findTargetSlice, placeProposal, type TargetInstance } from '../engine/place';
 import { autonomy } from '../engine/autonomy';
+import { token } from '../designTokens';
 import { isCitable, reject as rejectProposal } from '../engine/proposals';
 import {
   addVersion,
@@ -899,6 +900,13 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             .map((entry, index) => ({
               viewportId: viewportIds[index],
               displaySetInstanceUIDs: [entry.displaySetUid],
+              // Use OHIF's native one-shot stack positioning rather than a
+              // follow-up navigation. The hang is readable even if the next
+              // agent call is blocked, and no pixels cross the tool boundary.
+              viewportOptions:
+                token['hang/initial-stack-position'] === 'midpoint'
+                  ? { initialImageOptions: { preset: 'middle' as const, useOnce: true } }
+                  : undefined,
             }))
             .filter(entry => Boolean(entry.viewportId));
           if (updates.length < resolved.length) {

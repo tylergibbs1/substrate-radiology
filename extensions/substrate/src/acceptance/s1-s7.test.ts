@@ -201,7 +201,16 @@ describe('S1-S7 WebMCP acceptance sequence', () => {
         ],
       })
     ).resolves.toEqual(expect.objectContaining({ rows: 1, cols: 2 }));
-    expect(setDisplaySetsForViewports).toHaveBeenCalled();
+    expect(setDisplaySetsForViewports).toHaveBeenCalledWith([
+      expect.objectContaining({
+        viewportId: 'viewport-current',
+        viewportOptions: { initialImageOptions: { preset: 'middle', useOnce: true } },
+      }),
+      expect.objectContaining({
+        viewportId: 'viewport-prior',
+        viewportOptions: { initialImageOptions: { preset: 'middle', useOnce: true } },
+      }),
+    ]);
 
     // S2 — keyboard/voice intent becomes one deterministic navigation command
     // per step. No pixels or image-derived landmark crosses the tool boundary.

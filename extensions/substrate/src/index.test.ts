@@ -76,7 +76,7 @@ describe('Substrate mode lifecycle', () => {
     expect(substrateExtension.exitSubstrateMode).toBe(exitSubstrateMode);
   });
 
-  it('does not run prep when WebMCP is unsupported', async () => {
+  it('keeps prep running when WebMCP is unsupported', async () => {
     (register as jest.Mock).mockResolvedValue({
       ok: false,
       registered: [],
@@ -91,7 +91,9 @@ describe('Substrate mode lifecycle', () => {
       expect.objectContaining({ sessionSignal: expect.any(AbortSignal) })
     );
     expect(mountAgentIsland).toHaveBeenCalledTimes(1);
-    expect(runFullPrep).not.toHaveBeenCalled();
+    const sessionSignal = (buildViewerTools as jest.Mock).mock.calls[0][0].sessionSignal;
+    expect(runFullPrep).toHaveBeenCalledWith([tool], sessionSignal);
+    expect(sessionSignal.aborted).toBe(false);
   });
 
   it('discards registration completion after mode exit', async () => {
@@ -110,7 +112,9 @@ describe('Substrate mode lifecycle', () => {
 
     expect(mountAgentIsland).not.toHaveBeenCalled();
     expect(panelService.addPanel).not.toHaveBeenCalled();
-    expect(runFullPrep).not.toHaveBeenCalled();
+    expect(runFullPrep).toHaveBeenCalledTimes(1);
+    const prepSignal = (runFullPrep as jest.Mock).mock.calls[0][1] as AbortSignal;
+    expect(prepSignal.aborted).toBe(true);
   });
 
   it('keeps a rapid re-entry isolated from the previous registration', async () => {
@@ -138,7 +142,11 @@ describe('Substrate mode lifecycle', () => {
       second.deps.servicesManager.services,
       expect.any(Number)
     );
-    expect(runFullPrep).toHaveBeenCalledTimes(1);
+    expect(runFullPrep).toHaveBeenCalledTimes(2);
+    const firstPrepSignal = (runFullPrep as jest.Mock).mock.calls[0][1] as AbortSignal;
+    const secondPrepSignal = (runFullPrep as jest.Mock).mock.calls[1][1] as AbortSignal;
+    expect(firstPrepSignal.aborted).toBe(true);
+    expect(secondPrepSignal.aborted).toBe(false);
   });
 
   it('cancels panel activation and pending autonomy decisions on exit', async () => {
@@ -157,8 +165,8 @@ describe('Substrate mode lifecycle', () => {
     jest.useRealTimers();
   });
 
-  it('starts prep only after every tool registered successfully', async () => {
-    (register as jest.Mock).mockResolvedValue({ ok: true, registered: ['get_context'] });
+  it('starts prep before WebMCP registration settles', async () => {
+    (register as jest.Mock).mockReturnValue(new Promise(() => undefined));
     const { deps } = dependencies();
 
     enterSubstrateMode(deps);
@@ -166,5 +174,6 @@ describe('Substrate mode lifecycle', () => {
 
     const sessionSignal = (buildViewerTools as jest.Mock).mock.calls[0][0].sessionSignal;
     expect(runFullPrep).toHaveBeenCalledWith([tool], sessionSignal);
+    expect(mountAgentIsland).not.toHaveBeenCalled();
   });
 });

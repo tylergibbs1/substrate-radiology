@@ -53,7 +53,6 @@ describe('Full prep', () => {
           { viewport: 'viewport-prior', series_uid: 'series-prior' },
         ],
       }),
-      record('set_display', { applied: ['lung window'] }),
       record('list_measurements', {
         measurements: [
           {
@@ -73,7 +72,14 @@ describe('Full prep', () => {
     const result = await runFullPrep(tools, new AbortController().signal, 0);
 
     expect(result.status).toBe('done');
-    expect(calls.filter(call => call.name === 'set_display')).toHaveLength(2);
+    expect(calls.find(call => call.name === 'hang_layout')?.input).toEqual({
+      rows: 1,
+      cols: 2,
+      viewports: [
+        { series_uid: 'series-current', preset: 'lung' },
+        { series_uid: 'series-prior', preset: 'lung' },
+      ],
+    });
     expect(calls.find(call => call.name === 'propose_measurement')?.input).toEqual({
       from_measurement_id: 'measurement-prior-1',
       target_study_uid: 'current',
@@ -126,7 +132,6 @@ describe('Full prep', () => {
           { viewport: 'viewport-prior', series_uid: 'series-prior' },
         ],
       }),
-      record('set_display', { applied: ['lung window'] }),
       record('list_measurements', {
         measurements: [
           {

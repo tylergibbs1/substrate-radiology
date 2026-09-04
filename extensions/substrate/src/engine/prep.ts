@@ -133,8 +133,8 @@ async function performFullPrep(
     rows: 1,
     cols: 2,
     viewports: [
-      { series_uid: String(currentSeries.series_uid ?? '') },
-      { series_uid: String(priorSeries.series_uid ?? '') },
+      { series_uid: String(currentSeries.series_uid ?? ''), preset: 'lung' },
+      { series_uid: String(priorSeries.series_uid ?? ''), preset: 'lung' },
     ],
   });
   if (signal.aborted) return { status: 'cancelled', studyUid: currentStudyUid, steps };
@@ -143,13 +143,6 @@ async function performFullPrep(
     return { status: 'incomplete', studyUid: currentStudyUid, steps };
   }
   steps.push('Hung current and prior');
-
-  const panes = rows(object(hang).panes);
-  for (const pane of panes) {
-    const viewport = String(pane.viewport ?? '');
-    if (viewport) await call('set_display', { viewport, preset: 'lung' });
-  }
-  if (signal.aborted) return { status: 'cancelled', studyUid: currentStudyUid, steps };
   steps.push('Applied lung window');
 
   const listed = object(await call('list_measurements'));

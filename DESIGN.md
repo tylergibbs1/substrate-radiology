@@ -506,6 +506,9 @@ Tables are evidence:
 - Do keep preparation opinionated: Full prep is the default, and the only
   user-facing mode exception is `Ask before changes` under Details >
   Preferences. Auto-prep remains an engine state, not a daily sidebar choice.
+- Do keep viewer preparation independent of agent connection. WebMCP failure
+  changes Connection state only; it never gates the comparison hang, display
+  presets, or the viewer itself.
 - Don't add eyebrows, section counters, all-caps labels, or attribute names
   in front of values. If a row needs a word to explain what it is, the row
   is wrong.
@@ -662,6 +665,18 @@ layout instructions run whether or not an agent is connected.
 Full prep is the product, not a mode the reader has to choose. There is no
 autonomy selector in the work view or Details. The engine retains 3 levels so
 its behavior can be tested precisely, but `auto-prep` is never user-facing.
+
+Full prep is a viewer workflow, not a WebMCP side effect. It runs from the
+mode lifecycle whether tool registration succeeds, fails, or remains pending.
+Connection failure may say `Blocked`, but it must not cancel, hide, resize, or
+otherwise disturb the study. WebMCP registration has its own cancellation
+lifecycle so cleaning up a partial tool surface cannot abort viewer work.
+
+When a multi-image current/prior comparison is hung, the hang places each
+stack at its metadata midpoint once using OHIF's native initial-image option.
+This avoids presenting an empty boundary frame without inspecting pixels or
+claiming an anatomical landmark. After that opening placement, scroll belongs
+entirely to the reader unless they explicitly ask the agent to navigate.
 
 Details > Preferences contains one exception: `Ask before changes`. Off means
 Full prep. On means Assist. At Assist, the question appears inline in the
