@@ -4,6 +4,8 @@ Substrate adds a browser-native agent workflow to the stock [OHIF medical imagin
 
 **This application is for research use only. Do not use it for clinical diagnosis. The FDA has not cleared it.**
 
+![Substrate showing current and prior chest CT images, accepted measurements, the agent conversation, and the WebMCP tool list](docs/assets/substrate-webmcp-demo.png)
+
 ## Try the live demo
 
 Open the [public chest CT study](https://substrate.grayhavenindustries.com/viewer?StudyInstanceUIDs=1.2.840.113654.2.55.302957049620416109572494829313844992999) in ChatGPT's in-app browser. The site requires no account.
