@@ -572,6 +572,11 @@ of tools the site exposes, and the read and write counts. Building any of
 those again inside the panel produces a second, worse copy of something the
 reader already has.
 
+In the browser's tool list, every tool title is its callable identifier
+(`get_context`, `hang_layout`, `request_signature`). Human-language guidance
+belongs in the description, so the name shown to the reader is the exact name
+the agent invokes.
+
 So there is no composer in this product. A prompt arrives from the browser's
 own surface, and the panel reports what happened to the study. The standing
 instructions list is the exception that proves the rule: it is site data,
@@ -733,8 +738,9 @@ never replace one with a word like several, many, or a few.
 - State what happened in one sentence with links, not a list of calls.
 - Present tense only for the step currently running; everything finished is
   past tense.
-- An empty surface offers the next action: "Label a target to propose it on
-  the prior."
+- The measurement empty state is headed "No measurements yet" and offers the
+  next action: "Measure and label a target to propose its location on the
+  prior."
 - A failure says what happened and what to do, in the interface's voice.
 - Numbers state consequences: "4 statements, 1 with no measurement behind
   it," not "1 error."

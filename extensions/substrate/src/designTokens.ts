@@ -33,6 +33,11 @@ export const token = {
   'panel/header': 'fixed',
   'panel/content': 'scrollable',
   'panel/footer': 'fixed',
+  'empty/measurements-title': 'No measurements yet',
+  'empty/measurements-action':
+    'Measure and label a target to propose its location on the prior.',
+
+  'webmcp/tool-title': 'identifier',
 
   'surface/panel': '#1c1c1c',
   'surface/inset': '#2a2a2a',

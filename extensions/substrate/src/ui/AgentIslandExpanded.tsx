@@ -258,9 +258,9 @@ export function AgentIslandExpanded({
                   padding: `${token['space/md']} 0 ${token['space/base']}`,
                 }}
               >
-                <h2 style={panelHeadingStyle}>Findings</h2>
+                <h2 style={panelHeadingStyle}>{token['empty/measurements-title']}</h2>
                 <p style={{ margin: 0, color: token['ink/low'], font: token['text/ui'] }}>
-                  Label a target to propose it on the prior.
+                  {token['empty/measurements-action']}
                 </p>
               </section>
             )}

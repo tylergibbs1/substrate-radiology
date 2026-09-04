@@ -112,7 +112,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
 
   const getContext: WebMcpTool = {
     name: 'get_context',
-    title: 'What is open, and what to do next',
+    title: 'get_context',
     description:
       'Start here. Returns the study that is open, which prior timepoints exist, the ' +
       'current viewport layout, how many measurements the radiologist has made, and a ' +
@@ -207,7 +207,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
 
   const getStudy: WebMcpTool = {
     name: 'get_study',
-    title: 'The series in a study, and its priors',
+    title: 'get_study',
     description:
       'Lists every series that is loaded, with modality, description, date and image ' +
       'count, grouped by study so you can tell the current study from its priors. ' +
@@ -256,7 +256,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
 
   const listMeasurements: WebMcpTool = {
     name: 'list_measurements',
-    title: 'What the radiologist has measured',
+    title: 'list_measurements',
     description:
       'Returns every measurement in the viewer with its id, label, series, tool and the ' +
       'value as it appears on screen. Read-only. This is the only source of numbers for ' +
@@ -302,7 +302,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
 
   const navigate: WebMcpTool = {
     name: 'navigate',
-    title: 'Move to a slice or to a measurement',
+    title: 'navigate',
     description:
       'Scrolls a viewport. Give it a measurement_id to jump to where a measurement was ' +
       'made, or a slice_index to go to a specific image. Changes what is on screen ' +
@@ -483,7 +483,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
 
   const setDisplay: WebMcpTool = {
     name: 'set_display',
-    title: 'Window, level and orientation',
+    title: 'set_display',
     description:
       'Applies a window/level preset such as lung, soft tissue, bone or brain, or resets ' +
       'zoom and pan. Changes what is on screen immediately and is reversible by applying ' +
@@ -673,7 +673,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
 
   const hangLayout: WebMcpTool = {
     name: 'hang_layout',
-    title: 'Hang the study',
+    title: 'hang_layout',
     description:
       'Sets the viewport grid and puts a named series in each pane — one row by two ' +
       'columns with the current study and its prior is the usual comparison hang. ' +
@@ -1054,7 +1054,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
 
   const proposeMeasurement: WebMcpTool = {
     name: 'propose_measurement',
-    title: 'Copy a measurement onto another timepoint',
+    title: 'propose_measurement',
     description:
       'Takes a measurement the radiologist already made and draws a COPY of it on ' +
       'another study at the matching anatomical position, so the same lesion can be ' +
@@ -1266,7 +1266,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
 
   const compareWithPrior: WebMcpTool = {
     name: 'compare_with_prior',
-    title: 'Change between timepoints',
+    title: 'compare_with_prior',
     description:
       'Pairs up measurements that share a label across studies and reports the change ' +
       'between them. Read-only. It uses only measurements the radiologist made or ' +
@@ -1366,7 +1366,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
 
   const draftReport: WebMcpTool = {
     name: 'draft_report',
-    title: 'Assemble the findings from the measurements',
+    title: 'draft_report',
     description:
       'Writes a report draft from measurements that already exist. Every sentence may ' +
       'cite measurement ids, and a sentence that cites none is flagged as unsupported — ' +
@@ -1684,7 +1684,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
 
   const requestSignatureTool: WebMcpTool = {
     name: 'request_signature',
-    title: 'Ask the radiologist to sign',
+    title: 'request_signature',
     description:
       'Puts the report in front of the radiologist to sign. Returns immediately with ' +
       'pending — it does not wait, and it does not sign anything. Only the person can ' +

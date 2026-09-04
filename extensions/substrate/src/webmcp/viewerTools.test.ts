@@ -53,6 +53,7 @@ describe('WebMCP surface', () => {
       'draft_report',
       'request_signature',
     ]);
+    expect(tools.every(tool => tool.title === tool.name)).toBe(true);
     expect(tools.filter(tool => tool.annotations?.readOnlyHint).map(tool => tool.name)).toEqual([
       'get_context',
       'get_study',
