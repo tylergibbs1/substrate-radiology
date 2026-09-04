@@ -33,6 +33,8 @@ export const token = {
   'panel/header': 'fixed',
   'panel/content': 'scrollable',
   'panel/footer': 'fixed',
+  'panel/collapse-control': 'host',
+  'status/idle-context': 'none',
   'empty/measurements-title': 'No measurements yet',
   'empty/measurements-action':
     'Measure and label a target to propose its location on the prior.',

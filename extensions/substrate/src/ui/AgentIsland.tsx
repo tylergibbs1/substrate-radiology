@@ -154,7 +154,7 @@ export function AgentIsland({
               ? relative(Date.now() - lastWrite.startedAt)
               : failure?.kind === 'unsupported'
                 ? 'in this browser'
-                : 'for this study';
+                : '';
   const railObjectKey = topConfirmation
     ? `confirmation:${topConfirmation.id}`
     : topProposal

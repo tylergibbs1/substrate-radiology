@@ -114,7 +114,7 @@ export function AgentIslandExpanded({
               aria-label={`Agent status: ${railVerb}${railObject ? `, ${railObject}` : ''}`}
               style={{
                 display: 'grid',
-                gridTemplateColumns: `${token['lane/status']} minmax(0, 1fr) auto`,
+                gridTemplateColumns: `${token['lane/status']} minmax(0, 1fr)`,
                 alignItems: 'center',
                 gap: token['space/sm'],
                 minHeight: token['hit/target'],
@@ -165,23 +165,6 @@ export function AgentIslandExpanded({
               >
                 {railObject}
               </span>
-              <button
-                className="substrate-control substrate-touch-hitbox"
-                type="button"
-                aria-label="Collapse Agent Work"
-                onClick={() => window.dispatchEvent(new Event('substrate:collapse-agent-panel'))}
-                style={{
-                  position: 'relative',
-                  padding: 0,
-                  color: token['ink/low'],
-                  background: 'transparent',
-                  border: 0,
-                  font: token['text/ui'],
-                  cursor: 'pointer',
-                }}
-              >
-                Collapse
-              </button>
             </div>
           </header>
 

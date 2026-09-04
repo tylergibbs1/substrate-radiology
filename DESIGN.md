@@ -428,7 +428,9 @@ Tables are evidence:
 - **Host integration:** OHIF owns the viewer header, toolbar, viewport grid,
   panel shell, active-tool styling, and theme. Substrate contributes an Agent
   tab and a collapsed status surface through OHIF's panel service. It does not
-  rewrite host semantic tokens, host classes, or viewport backgrounds.
+  rewrite host semantic tokens, host classes, or viewport backgrounds. The
+  native panel shell owns its collapse control; Substrate does not repeat it
+  inside the Agent content.
 - **Recent work:** Completed writes use one expanded disclosure labelled by
   count: `2 recent actions`. It reveals at most 6 compact tool rows, ordered
   oldest to newest so the live edge stays at the bottom. The full Activity
@@ -690,6 +692,10 @@ The status strip and the panel never appear together. The strip exists so
 that a collapsed panel still reports state; when the panel is open it owns
 the state line and the strip is gone. A strip beside an open panel shows the
 same status twice and offers to open something already open.
+
+An idle Agent state is simply `Idle`. It carries no persistent qualifier such
+as `for this study`; the object lane appears only when there is actual work,
+a decision, a proposal, a report, or a connection condition to name.
 
 ### Stop exists from the moment the agent is committed
 
