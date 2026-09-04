@@ -339,6 +339,48 @@ describe('viewer undo', () => {
     });
   });
 
+  it('waits for OHIF asynchronous slice navigation before verifying it', async () => {
+    let currentIndex = 4;
+    const runCommand = jest.fn((name: string, options: any) => {
+      if (name === 'jumpToImage') {
+        window.setTimeout(() => {
+          currentIndex = options.imageIndex;
+        }, 25);
+      }
+    });
+    const tools = buildViewerTools({
+      servicesManager: {
+        services: {
+          viewportGridService: {
+            getState: jest.fn(() => ({
+              activeViewportId: 'viewport-1',
+              viewports: new Map([['viewport-1', {}]]),
+              layout: { numRows: 1, numCols: 1 },
+            })),
+            setActiveViewportId: jest.fn(),
+            setDisplaySetsForViewports: jest.fn(),
+          },
+          cornerstoneViewportService: {
+            getCornerstoneViewport: jest.fn(() => ({
+              element: { isConnected: true },
+              getCurrentImageIdIndex: () => currentIndex,
+            })),
+          },
+          displaySetService: {
+            getActiveDisplaySets: jest.fn(() => []),
+            getDisplaySetByUID: jest.fn(),
+          },
+        },
+      },
+      commandsManager: { runCommand },
+      extensionManager: {},
+    });
+
+    await expect(
+      tools.find(tool => tool.name === 'navigate')?.execute({ slice_index: 10 })
+    ).resolves.toEqual({ viewport: 'viewport-1', slice_index: 10, slice_location_mm: null });
+  });
+
   it('maps a patient-space slice location to the nearest image', async () => {
     let currentIndex = 0;
     const runCommand = jest.fn((name: string, options: any) => {

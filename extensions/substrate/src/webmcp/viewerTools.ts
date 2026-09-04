@@ -48,6 +48,30 @@ function matchesWindowLevel(range: VoiRange | undefined, window: number, level: 
   );
 }
 
+async function waitForImageIndex(
+  cornerstone: ReturnType<typeof resolveViewerServices>['cornerstone'],
+  viewportId: string,
+  targetIndex: number,
+  signal?: AbortSignal
+): Promise<number | undefined> {
+  const readable = cornerstone
+    ?.getCornerstoneViewport(viewportId)
+    ?.getCurrentImageIdIndex;
+  if (!readable) return undefined;
+
+  let resultingIndex = cornerstone
+    ?.getCornerstoneViewport(viewportId)
+    ?.getCurrentImageIdIndex?.();
+  for (let attempt = 0; attempt < 100 && resultingIndex !== targetIndex; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 50));
+    if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
+    resultingIndex = cornerstone
+      ?.getCornerstoneViewport(viewportId)
+      ?.getCurrentImageIdIndex?.();
+  }
+  return resultingIndex;
+}
+
 /**
  * The viewer tool surface.
  *
@@ -426,9 +450,12 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
               'Call get_study for the image_count of the series, and use a zero-based index below it.'
             );
           }
-          const resultingIndex = cornerstone
-            ?.getCornerstoneViewport(viewportId)
-            ?.getCurrentImageIdIndex?.();
+          const resultingIndex = await waitForImageIndex(
+            cornerstone,
+            viewportId,
+            targetIndex,
+            signal
+          );
           if (Number.isFinite(resultingIndex) && resultingIndex !== targetIndex) {
             restorePosition();
             return refuse(
@@ -967,14 +994,24 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
           }
           if (token['hang/initial-stack-position'] === 'midpoint' && entry.imageCount > 1) {
             const midpoint = Math.floor((entry.imageCount - 1) / 2);
-            const viewport = cornerstone?.getCornerstoneViewport(viewportId);
-            if (viewport?.getCurrentImageIdIndex?.() !== midpoint) {
+            if (
+              cornerstone?.getCornerstoneViewport(viewportId)?.getCurrentImageIdIndex?.() !==
+              midpoint
+            ) {
               deps.commandsManager.runCommand('jumpToImage', {
                 imageIndex: midpoint,
                 viewport: { id: viewportId },
               });
             }
-            const resultingIndex = viewport?.getCurrentImageIdIndex?.();
+            // OHIF's jumpToImage command intentionally returns void while
+            // Cornerstone's jumpToSlice finishes asynchronously. Reacquire the
+            // viewport while waiting: a grid rebuild can replace its instance.
+            const resultingIndex = await waitForImageIndex(
+              cornerstone,
+              viewportId,
+              midpoint,
+              signal
+            );
             if (Number.isFinite(resultingIndex) && resultingIndex !== midpoint) {
               await restoreLayout();
               return refuse(
