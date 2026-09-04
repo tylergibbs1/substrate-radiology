@@ -160,6 +160,45 @@ describe('Full prep', () => {
     expect(calls).not.toContain('draft_report');
   });
 
+  it('does not treat a later study as the prior when an older study is opened directly', async () => {
+    const calls: string[] = [];
+    const record = (name: string, result: JsonValue) =>
+      tool(name, () => {
+        calls.push(name);
+        return result;
+      });
+    const tools = [
+      record('get_context', {
+        study_uid: 'older-open-study',
+        active_viewport: 'viewport-older',
+        panes: [{ viewport: 'viewport-older', series_uid: 'series-older' }],
+      }),
+      record('get_study', {
+        studies: [
+          {
+            study_uid: 'older-open-study',
+            study_date: '20250101',
+            series: [{ series_uid: 'series-older', image_count: 150 }],
+          },
+          {
+            study_uid: 'later-study',
+            study_date: '20260101',
+            series: [{ series_uid: 'series-later', image_count: 160 }],
+          },
+        ],
+      }),
+      record('hang_layout', { rows: 1, cols: 2 }),
+    ];
+
+    await expect(runFullPrep(tools, new AbortController().signal, 0)).resolves.toEqual({
+      status: 'incomplete',
+      studyUid: 'older-open-study',
+      steps: [],
+      message: 'A current study and prior are required for Full prep.',
+    });
+    expect(calls).not.toContain('hang_layout');
+  });
+
   it.each(['assist', 'auto-prep'] as const)(
     'does not run opening-study preparation at %s',
     async level => {

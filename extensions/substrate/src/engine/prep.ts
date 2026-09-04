@@ -95,8 +95,17 @@ async function performFullPrep(
   const studyResult = object(await call('get_study'));
   const studies = rows(studyResult.studies);
   const current = studies.find(study => String(study.study_uid ?? '') === currentStudyUid);
+  const currentStudyDate = String(current?.study_date ?? '');
   const prior = studies
-    .filter(study => String(study.study_uid ?? '') !== currentStudyUid)
+    .filter(study => {
+      const studyDate = String(study.study_date ?? '');
+      return (
+        String(study.study_uid ?? '') !== currentStudyUid &&
+        currentStudyDate !== '' &&
+        studyDate !== '' &&
+        studyDate < currentStudyDate
+      );
+    })
     .sort((a, b) => String(b.study_date ?? '').localeCompare(String(a.study_date ?? '')))[0];
   if (!current || !prior) {
     return {
