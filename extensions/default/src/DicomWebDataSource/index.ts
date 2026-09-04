@@ -168,7 +168,7 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
             dicomWebConfig.omitQuotationForMultipartRequest
           );
           return {
-            ...authorizationHeader
+            ...authorizationHeader,
             Accept: formattedAcceptHeader,
           };
         } else {
