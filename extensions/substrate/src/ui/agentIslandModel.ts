@@ -31,8 +31,12 @@ export function relative(ms: number): string {
 }
 
 export function finishedPhrase(event: ToolCallEvent): string {
+  if (!event.ok) {
+    return event.resultSummary
+      ? `Could not complete · ${event.resultSummary}`
+      : 'Could not complete · The change did not go through';
+  }
   if (event.activity) return formatActivity(event.activity);
-  if (!event.ok) return event.resultSummary || 'The change did not go through';
   switch (event.tool) {
     case 'hang_layout':
       return 'Hung the study';

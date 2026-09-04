@@ -658,6 +658,12 @@ presenting an empty boundary frame without inspecting pixels or claiming an
 anatomical landmark. After that opening placement, scroll belongs entirely to
 the reader unless they explicitly ask the agent to navigate.
 
+Loading a prior is asynchronous in OHIF. A hang waits up to 10 seconds for the
+requested series to enter the active display-set service, polling every 50ms
+and respecting cancellation, before it changes the viewport grid. A failed
+write names the returned reason in Recent work; its input summary is never the
+only failure explanation.
+
 Details > Preferences contains one exception: `Ask before changes`. Off means
 Auto-prep. On means Assist. At Assist, the question appears inline in the
 docked panel, or in the status strip while that panel is collapsed, with the

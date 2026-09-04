@@ -1,5 +1,5 @@
 import type { ToolCallEvent } from '../webmcp/presence';
-import { chronologicalHistory, recentWorkWindow } from './agentIslandModel';
+import { chronologicalHistory, finishedPhrase, recentWorkWindow } from './agentIslandModel';
 
 function event(callId: number, ok = true): ToolCallEvent {
   return {
@@ -57,5 +57,20 @@ describe('activity history order', () => {
 
     expect(chronologicalHistory(newestFirst).map(item => item.callId)).toEqual([1, 2, 3]);
     expect(newestFirst.map(item => item.callId)).toEqual([3, 2, 1]);
+  });
+});
+
+describe('failed activity copy', () => {
+  it('shows the returned reason instead of repeating the input summary', () => {
+    const failed = event(1, false);
+    failed.resultSummary = 'The prior series was still loading.';
+    failed.activity = {
+      action: 'Could not complete',
+      parameter: '2 across, 1 row, 2 series',
+    };
+
+    expect(finishedPhrase(failed)).toBe(
+      'Could not complete · The prior series was still loading.'
+    );
   });
 });

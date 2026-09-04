@@ -12,7 +12,10 @@ jest.mock('../engine/proposals', () => ({
 import { webcrypto } from 'crypto';
 import { TextEncoder as NodeTextEncoder } from 'util';
 
-import { buildViewerTools as buildViewerToolsWithSession } from './viewerTools';
+import {
+  buildViewerTools as buildViewerToolsWithSession,
+  waitForSeriesDisplaySet,
+} from './viewerTools';
 import { autonomy } from '../engine/autonomy';
 import { presence } from './presence';
 import {
@@ -79,6 +82,29 @@ describe('WebMCP surface', () => {
     ).resolves.toEqual(expect.objectContaining({ ok: false, code: 'BAD_INPUT' }));
     expect(autonomy.getPending()).toEqual([]);
     expect(runCommand).not.toHaveBeenCalled();
+  });
+});
+
+describe('OHIF study hydration', () => {
+  it('waits for a loaded prior to enter the active display sets', async () => {
+    const prior = {
+      displaySetInstanceUID: 'display-prior',
+      SeriesInstanceUID: 'series-prior',
+      StudyInstanceUID: 'study-prior',
+    };
+    const getActiveDisplaySets = jest
+      .fn()
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([])
+      .mockReturnValue([prior]);
+
+    await expect(
+      waitForSeriesDisplaySet(
+        { getActiveDisplaySets, getDisplaySetByUID: jest.fn() },
+        'series-prior'
+      )
+    ).resolves.toBe(prior);
+    expect(getActiveDisplaySets).toHaveBeenCalledTimes(3);
   });
 });
 

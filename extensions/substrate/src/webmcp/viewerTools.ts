@@ -28,6 +28,8 @@ import {
   describeMeasurement,
   resolveViewerServices,
   viewportReady,
+  type DisplaySet,
+  type DisplaySetService,
   type ViewerDependencies,
 } from './viewerContext';
 
@@ -70,6 +72,26 @@ async function waitForImageIndex(
       ?.getCurrentImageIdIndex?.();
   }
   return resultingIndex;
+}
+
+export async function waitForSeriesDisplaySet(
+  displaySet: DisplaySetService | undefined,
+  seriesUid: string,
+  signal?: AbortSignal
+): Promise<DisplaySet | undefined> {
+  const attempts = Math.ceil(
+    token['hang/study-hydration-timeout'] / token['hang/readiness-poll']
+  );
+  for (let attempt = 0; attempt <= attempts; attempt += 1) {
+    const match = displaySet
+      ?.getActiveDisplaySets()
+      .find(candidate => candidate.SeriesInstanceUID === seriesUid);
+    if (match) return match;
+    if (attempt === attempts) break;
+    await new Promise(resolve => setTimeout(resolve, token['hang/readiness-poll']));
+    if (signal?.aborted) throw signal.reason ?? new DOMException('Aborted', 'AbortError');
+  }
+  return undefined;
 }
 
 /**
@@ -800,9 +822,18 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
                   })
                 );
                 ensureActive(signal);
+                match = await waitForSeriesDisplaySet(displaySet, seriesUid, signal);
                 sets = displaySet?.getActiveDisplaySets() ?? [];
-                match = sets.find(candidate => candidate.SeriesInstanceUID === seriesUid);
+                if (!match) {
+                  return refuse(
+                    'SERIES_NOT_READY',
+                    'The selected prior series did not finish loading within 10 seconds.',
+                    'Keep the study open, wait for its thumbnail to appear, then call ' +
+                      'hang_layout again.'
+                  );
+                }
               } catch (error) {
+                ensureActive(signal);
                 return refuse(
                   'STUDY_LOAD_FAILED',
                   error instanceof Error

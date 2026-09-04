@@ -87,6 +87,8 @@ export const token = {
   'history/fade-oldest': 0.55,
   'history/fade-next': 0.78,
   'hang/initial-stack-position': 'midpoint',
+  'hang/study-hydration-timeout': 10000,
+  'hang/readiness-poll': 50,
   'layout/scrollbar-gutter': 'stable',
   'hit/target': '44px',
   'icon/disclosure-size': '7px',
