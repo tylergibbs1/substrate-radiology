@@ -48,4 +48,4 @@ The tools do not return image pixels. They do not accept agent-selected measurem
 - [Implementation contract](SUBSTRATE.md)
 - [S1 through S7 acceptance record](docs/acceptance/s1-s7/README.md)
 - [Demo data attribution](DATA_ATTRIBUTION.md)
-- Demo video: **add the public YouTube URL before submitting to Devpost**
+- [Demo video](https://youtu.be/WcEev2iTRRo)

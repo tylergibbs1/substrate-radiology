@@ -28,7 +28,7 @@ Substrate extends the existing open-source OHIF viewer. The WebMCP extension, co
 
 - [Live application](https://substrate.grayhavenindustries.com/viewer?StudyInstanceUIDs=1.2.840.113654.2.55.302957049620416109572494829313844992999)
 - [Public source repository](https://github.com/tylergibbs1/substrate-radiology)
-- Demo video: **add the public YouTube URL before submitting**
+- [Demo video](https://youtu.be/WcEev2iTRRo)
 
 ## Testing instructions
 

@@ -14,7 +14,7 @@ Prompt the connected agent in natural language:
 
 The agent should call `get_context` before changing the viewer. You don't need to name tool calls in normal use.
 
-Demo video: **add the public YouTube URL before submitting to Devpost.**
+[Watch the demo video on YouTube](https://youtu.be/WcEev2iTRRo).
 
 ## Why WebMCP fits radiology workflow
 
