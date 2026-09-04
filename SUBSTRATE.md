@@ -141,12 +141,9 @@ changes. Export remains a human action inside the signed-report receipt rather
 than an agent tool. The autonomy level and standing instructions are set only in
 the viewer; Assist holds workflow writes for an explicit Apply or Skip decision,
 Auto-prep carries out requested writes without opening-study preparation, and
-`get_context` reports the level, instructions, and pending confirmations. Full
-prep deterministically waits for OHIF's viewports, discovers and hangs the
-latest prior, applies display presets, propagates labeled measurements as
-proposals, compares accepted measurements, and prepares a draft when labeled
-evidence exists. With no labeled evidence, the panel asks the reader to label a
-target instead of drafting a null result. Every workflow write has an undo boundary, the timing comparison records
+`get_context` reports the level, instructions, and pending confirmations.
+Opening a study does not run any preparation; the browser agent performs those
+steps through WebMCP after the reader prompts it. Every workflow write has an undo boundary, the timing comparison records
 by-hand and prepared runs, and report review supports sentence keep/remove,
 threaded replies, exact-sentence revision, template changes, version restore,
 signature staleness, and human-only export.

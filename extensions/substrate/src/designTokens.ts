@@ -10,7 +10,6 @@ export const token = {
   'action/primary-hover': '#d8d8d8',
   'action/primary-press': '#ffffff',
   'on/primary': '#1c1c1c',
-  'host/tooltip-ink': '#ffffff',
   'action/disabled': '#2a2a2a',
   'on/disabled': '#7b7b7b',
 
@@ -35,11 +34,8 @@ export const token = {
   'panel/content': 'scrollable',
   'panel/footer': 'fixed',
 
-  'surface/room': '#040404',
-  'surface/bed': '#101014',
   'surface/panel': '#1c1c1c',
   'surface/inset': '#2a2a2a',
-  'surface/raised': '#383838',
   'system/bench': 'bench',
   'system/plate': 'plate',
   // A rule on surface/card is the next surface step, never a fixed grey.
@@ -85,12 +81,7 @@ export const token = {
   'history/row-height': '36px',
   'history/fade-oldest': 0.55,
   'history/fade-next': 0.78,
-  'prep/agent-independent': true,
   'hang/initial-stack-position': 'midpoint',
-  'layout/panel-width': '320px',
-  'layout/panel-shell-header-height': '44px',
-  'layout/panel-tab-target': '44px',
-  'layout/panel-tab-mark': '32px',
   'layout/scrollbar-gutter': 'stable',
   'hit/target': '44px',
   'icon/disclosure-size': '7px',
@@ -112,7 +103,7 @@ export const token = {
 } as const;
 
 export type SessionState = 'idle' | 'working' | 'waiting-for-you' | 'done' | 'error';
-export type AutonomyLevel = 'assist' | 'auto-prep' | 'full-prep';
+export type AutonomyLevel = 'assist' | 'auto-prep';
 export type AgentPanelView = 'work' | 'details';
 export type ReviewState = 'unreviewed' | 'accepted' | 'rejected' | 'stale';
 export type SurfaceElevation = 'flush' | 'raised';

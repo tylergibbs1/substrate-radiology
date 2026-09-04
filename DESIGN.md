@@ -1,7 +1,7 @@
 ---
 version: alpha
 name: Substrate
-description: A darkroom instrument for reading medical images alongside an agent. Pure black room, a neutral grey ladder with no colour in it at all, and a single violet signal that belongs to the agent and to nothing else. The accent is tuned to survive both ends of a windowed CT, which is the only constraint that mattered. All type is one weight; hierarchy comes from size and tracking. No shadows, no gradients, no eyebrows, no all-caps. The agent is a 6px lamp and a 2px ring, never a persona.
+description: A browser-native agent layer inside the stock OHIF viewer. OHIF keeps its own chrome, theme, routes, and interaction behavior. Substrate owns only its agent panel, confirmations, recent work, signing surfaces, and a transient violet presence signal. The agent is a 6px lamp and a 2px ring, never a persona.
 colors:
   surface: "#040404"
   surface-bed: "#101014"
@@ -14,7 +14,6 @@ colors:
   on-surface-dim: "#7b7b7b"
   primary: "#ffffff"
   on-primary: "#1c1c1c"
-  host-tooltip-ink: "#ffffff"
   signal-mark: "#8b76ff"
   signal-stroke: "#6d52ff"
   on-signal: "#ffffff"
@@ -83,11 +82,11 @@ components:
     statusTime: compact-relative
     scrollbarGutter: stable
     detailsSections: activity, preferences, timing, connection
-  panel-shell:
-    headerHeight: 44px
-    tabTarget: 44px
-    tabMark: 32px
-    content: contained
+  host-integration:
+    viewer: native-ohif
+    themeOverrides: none
+    automaticViewerPreparation: false
+    extensionSurface: agent-panel-and-status
   recent-work:
     default: expanded
     summary: count
@@ -108,9 +107,8 @@ components:
     rounded: "{rounded.outer}"
     padding: "{spacing.card}"
   viewport:
-    backgroundColor: "{colors.surface}"
-    rounded: "{rounded.outer}"
-    padding: "{rounded.none}"
+    ownership: native-ohif
+    presenceOverlay: "{components.presence-ring}"
   lamp:
     backgroundColor: "{colors.signal-mark}"
     rounded: "{rounded.full}"
@@ -172,14 +170,13 @@ components:
 ## Overview
 
 Substrate is read in a dim room by one person who is looking at something
-else. The images are the subject; the interface is the bench the images sit
-on. Everything here follows from that.
+else. The images are the subject, and OHIF remains the bench they sit on.
+This system governs only the agent-owned surfaces added to that viewer.
 
-The room is pure black and every interface surface above it is a neutral
-grey with no chroma at all. There is exactly one colour in the product, a
-violet that belongs to the agent: a 6px lamp, a 2px ring, one 40px arrow.
-When it appears, the eye finds it immediately, because it is the only
-chromatic thing on the screen.
+Every Substrate-owned surface uses a neutral grey ladder with no chroma.
+Within those surfaces, violet belongs only to the agent: a 6px lamp, a 2px
+ring, one 40px arrow. OHIF's native chrome is outside this token system and
+is never recolored by the extension.
 
 The accent was chosen by measurement, not by taste. It has to stay visible on
 a study whose luminance the radiologist changes with a window preset, which
@@ -239,10 +236,6 @@ a change of surface.
   of the ladder: 4.35 on `surface-card`, 3.39 on `surface-raised`.
 - **Primary (#ffffff) on On-primary (#1c1c1c):** The one filled action per
   surface. Light on dark; the reverse of the surface it sits on.
-- **Host tooltip ink (#ffffff):** OHIF reuses its primary-foreground token for
-  both filled-button text and tooltip titles. Substrate separates the tooltip
-  title at the host boundary so it is 14.35:1 on `surface-inset`; supporting text
-  stays `on-surface-muted`.
 - **Signal-mark (#8b76ff):** The agent, on an interface surface. Solid marks
   only: the lamp, the arrow, the active pill. 5.38 on `surface-card`.
 - **Signal-stroke (#6d52ff):** The agent, on an image. Thin strokes only: the
@@ -432,13 +425,10 @@ Tables are evidence:
   region reserves its scrollbar gutter before it is needed. State changes and
   expanding disclosures therefore cannot move adjacent text. Safety boundaries
   are enforced by behavior and do not occupy the panel as explanatory copy.
-- **Panel shell:** In Substrate mode, OHIF's right-panel chrome is part of the
-  same dock rather than a separate toolbar. It has one `44px` header containing
-  the collapse control and `44px` tab targets with `32px` inset marks. The
-  header has one strong bottom rule; black tab spacers and the second separator
-  are removed. The active tab uses `surface-inset`, never signal. The panel body
-  owns the remaining height with `min-height: 0` and cannot create a second
-  page-height scroll surface. Other OHIF modes keep their native panel shell.
+- **Host integration:** OHIF owns the viewer header, toolbar, viewport grid,
+  panel shell, active-tool styling, and theme. Substrate contributes an Agent
+  tab and a collapsed status surface through OHIF's panel service. It does not
+  rewrite host semantic tokens, host classes, or viewport backgrounds.
 - **Recent work:** Completed writes use one expanded disclosure labelled by
   count: `2 recent actions`. It reveals at most 6 compact tool rows, ordered
   oldest to newest so the live edge stays at the bottom. The full Activity
@@ -484,7 +474,8 @@ Tables are evidence:
 - Do keep the signal at 6px lamps, a 2px ring, and one 40px arrow.
 - Do use `signal-mark` on interface surfaces and `signal-stroke` on images,
   and never mix the two in one element.
-- Do keep every surface at chroma zero. The accent is the only colour.
+- Do keep every Substrate-owned surface at chroma zero. The accent is the only
+  colour owned by the extension.
 - Do check outer equals inner plus padding before choosing a radius.
 - Do write sentence case, verbs first, and let content speak for itself.
 - Do give every write an undo, and keep what was removed visible and
@@ -503,12 +494,9 @@ Tables are evidence:
   never move a value.
 - Do lift an interactive disclosure to `surface-inset` on hover and keyboard
   focus so its hit area is visible without adding another border.
-- Do keep preparation opinionated: Full prep is the default, and the only
-  user-facing mode exception is `Ask before changes` under Details >
-  Preferences. Auto-prep remains an engine state, not a daily sidebar choice.
-- Do keep viewer preparation independent of agent connection. WebMCP failure
-  changes Connection state only; it never gates the comparison hang, display
-  presets, or the viewer itself.
+- Do let OHIF finish opening a study without any Substrate viewer write.
+- Do make every agent-driven layout, display, and navigation change originate
+  from an actual WebMCP tool call after the reader prompts the agent.
 - Don't add eyebrows, section counters, all-caps labels, or attribute names
   in front of values. If a row needs a word to explain what it is, the row
   is wrong.
@@ -526,7 +514,7 @@ Tables are evidence:
 - Don't let any surface float over the images.
 - Don't wrap a single write in a summary, a plan, or a group.
 - Don't build a composer, a tool list, or a call count. The browser has them.
-- Don't leave a hue anywhere in the host chrome.
+- Don't restyle, recolor, resize, or replace OHIF's host chrome.
 - Don't show the strip and the panel at the same time.
 - Don't put Preferences, Timing, or Connection disclosures in the work view.
   They live one level down in Details and keep their disclosure state when the
@@ -550,18 +538,14 @@ Stated so that a reader of this file knows where it stops.
   for it.
 - Nothing here describes the worklist, the study list, or anything before a
   study is open.
-- The neutral host theme maps OHIF's semantic theme variables while Substrate
-  mode is mounted. New host tokens must enter that map before they ship.
+- The Agent panel intentionally does not define the worklist, viewer toolbar,
+  viewport chrome, or host theme. Those remain OHIF concerns.
 - Motion outside the presence signature is limited to the 180ms state-copy
   transition and the 180ms Recent work sliding window. Other transitions remain
   local until they recur.
 
-The docked panel is `320px`. That is the smallest width that holds the widest
-real history row at Bench type without moving its fixed lanes: `32px` combined
-OHIF and component padding on each side, a `6px` lamp, three `12px` gaps, a
-`120px` minimum action lane, a `32px` Undo lane, and an `8ch` time lane. OHIF
-may let the reader widen it, but Substrate mode must not let it collapse below
-that measured width.
+The docked content must reflow inside OHIF's native panel width. Substrate does
+not impose a minimum width or alter the host panel's collapse geometry.
 
 ## Changing this system
 
@@ -572,25 +556,14 @@ with the number that was measured, not the number that was intended.
 
 ## The host's chrome
 
-Substrate runs inside a viewer that has its own theme, and the stock theme is
-blue: the toolbar, the icons, the active tool, the active viewport edge, and
-the patient chip. Measured against the accent, those hues sit 28 to 37 degrees
-away, which is the same family to a glancing eye. An accent that is the only
-colour in the product is not the only colour on the screen, and the premise
-collapses.
+Substrate runs inside a viewer with an established visual language. The stock
+OHIF toolbar, icons, active tool, viewport edge, patient controls, worklist,
+and panel shell remain byte-for-byte native. This is both a product boundary
+and a reliability boundary: the extension demonstrates what WebMCP adds to an
+existing clinical application without claiming the application as its own.
 
-Substrate mode therefore ships a neutral host theme. Every hue in the toolbar,
-the icon set, and the viewport chrome goes to chroma zero, and the active
-states are carried by the ladder: a selected tool is `surface-inset`, an
-active viewport edge is `line-strong`. Nothing in the host is allowed a hue.
-Tooltip titles use `host/tooltip-ink`, never OHIF's shared
-`primary-foreground`, because the latter is dark for Substrate's filled
-buttons.
-
-This is not a preference about the viewer's taste. Any accent, in any hue,
-fails the same way if the chrome around it is chromatic, because the eye
-finds the rarest colour and there is no rarest colour when everything is
-tinted.
+Substrate's violet signal is scoped to agent-authored UI and the transient
+viewport presence ring. It does not imply ownership of the surrounding host.
 
 ## What the site does not build
 
@@ -662,15 +635,16 @@ layout instructions run whether or not an agent is connected.
 
 ## Autonomy
 
-Full prep is the product, not a mode the reader has to choose. There is no
-autonomy selector in the work view or Details. The engine retains 3 levels so
-its behavior can be tested precisely, but `auto-prep` is never user-facing.
+Opening a study never runs automatic preparation. The mode lifecycle registers
+the WebMCP surface and agent UI only. Layout, display, navigation, proposal,
+report, and signature-request work begins when the browser agent invokes a
+tool. A blocked or unsupported WebMCP host changes Connection state only; it
+must not cancel, hide, resize, re-window, or otherwise disturb the study.
 
-Full prep is a viewer workflow, not a WebMCP side effect. It runs from the
-mode lifecycle whether tool registration succeeds, fails, or remains pending.
-Connection failure may say `Blocked`, but it must not cancel, hide, resize, or
-otherwise disturb the study. WebMCP registration has its own cancellation
-lifecycle so cleaning up a partial tool surface cannot abort viewer work.
+The engine has two authorization levels: Assist and Auto-prep. Assist requires
+confirmation for viewer writes. Auto-prep applies requested writes immediately.
+The authorization level changes how a requested tool call is applied; it never
+initiates work on its own.
 
 When a multi-image current/prior comparison is hung, the hang places each
 stack at its metadata midpoint once using OHIF's native initial-image option
@@ -680,7 +654,7 @@ anatomical landmark. After that opening placement, scroll belongs entirely to
 the reader unless they explicitly ask the agent to navigate.
 
 Details > Preferences contains one exception: `Ask before changes`. Off means
-Full prep. On means Assist. At Assist, the question appears inline in the
+Auto-prep. On means Assist. At Assist, the question appears inline in the
 docked panel, or in the status strip while that panel is collapsed, with the
 choices stated as actions rather than as yes and no. A viewer-write question
 never overlays the viewport it concerns. Elsewhere the write happens and the

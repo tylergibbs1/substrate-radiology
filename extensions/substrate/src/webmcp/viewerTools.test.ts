@@ -84,7 +84,7 @@ describe('WebMCP surface', () => {
 describe('propose_measurement', () => {
   beforeEach(() => {
     for (const request of autonomy.getPending()) autonomy.decide(request.id, 'skip');
-    autonomy.setLevel('full-prep');
+    autonomy.setLevel('auto-prep');
     autonomy.setStandingInstructions([]);
     jest.clearAllMocks();
   });
@@ -224,7 +224,7 @@ describe('propose_measurement', () => {
 
 describe('study inventory', () => {
   beforeEach(() => {
-    autonomy.setLevel('full-prep');
+    autonomy.setLevel('auto-prep');
     jest.clearAllMocks();
   });
 
@@ -289,7 +289,7 @@ describe('study inventory', () => {
 
 describe('viewer undo', () => {
   beforeEach(() => {
-    autonomy.setLevel('full-prep');
+    autonomy.setLevel('auto-prep');
     jest.clearAllMocks();
   });
 
@@ -561,7 +561,7 @@ describe('viewer undo', () => {
   });
 
   it('rolls back a partially applied layout when the mode session exits', async () => {
-    autonomy.setLevel('full-prep');
+    autonomy.setLevel('auto-prep');
     const session = new AbortController();
     const runCommand = jest.fn((name: string, options: any) => {
       if (name === 'setViewportGridLayout' && options.numRows === 2) session.abort();
@@ -604,7 +604,7 @@ describe('viewer undo', () => {
 
 describe('get_context autonomy', () => {
   it('reports the level, standing instructions, and pending decisions', async () => {
-    autonomy.setLevel('full-prep');
+    autonomy.setLevel('auto-prep');
     autonomy.setStandingInstructions(['Put the most recent prior on the right.']);
     const tools = buildViewerTools({
       servicesManager: {
@@ -628,13 +628,13 @@ describe('get_context autonomy', () => {
 
     await expect(getContext?.execute({})).resolves.toEqual(
       expect.objectContaining({
-        autonomy_level: 'full-prep',
+        autonomy_level: 'auto-prep',
         standing_instructions: ['Put the most recent prior on the right.'],
         pending_confirmations: [],
       })
     );
 
-    autonomy.setLevel('full-prep');
+    autonomy.setLevel('auto-prep');
     autonomy.setStandingInstructions([]);
   });
 });
@@ -642,7 +642,7 @@ describe('get_context autonomy', () => {
 describe('report replies', () => {
   beforeEach(() => {
     clearReport();
-    autonomy.setLevel('full-prep');
+    autonomy.setLevel('auto-prep');
   });
 
   it('revises only the replied-to sentence and closes that reply', async () => {

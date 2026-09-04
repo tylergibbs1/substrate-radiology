@@ -43,7 +43,7 @@ const PRIOR_SERIES = '1.2.840.113654.2.55.29718882584884913870849193779132076223
 describe('S1-S7 WebMCP acceptance sequence', () => {
   beforeEach(() => {
     clearReport();
-    autonomy.setLevel('full-prep');
+    autonomy.setLevel('auto-prep');
     autonomy.setStandingInstructions([]);
     jest.clearAllMocks();
   });

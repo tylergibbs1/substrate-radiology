@@ -45,9 +45,6 @@ function ViewerLayout({
   const [bottomPanels, setBottomPanels] = useState(panelService.getPanels('bottom'));
   const [leftPanelClosedState, setLeftPanelClosed] = useState(leftPanelClosed);
   const [rightPanelClosedState, setRightPanelClosed] = useState(rightPanelClosed);
-  const hasSubstrateAgentPanel = panelService
-    .getPanels('right')
-    .some(panel => panel.id === '@substrate/extension-substrate.panelModule.agent');
 
   const [
     leftPanelProps,
@@ -67,8 +64,7 @@ function ViewerLayout({
     leftPanelInitialExpandedWidth,
     rightPanelInitialExpandedWidth,
     leftPanelMinimumExpandedWidth,
-    rightPanelMinimumExpandedWidth,
-    hasSubstrateAgentPanel
+    rightPanelMinimumExpandedWidth
   );
 
   const handleMouseEnter = () => {
@@ -194,7 +190,6 @@ function ViewerLayout({
               <div className="flex h-full flex-1 flex-col">
                 <div
                   className="relative flex h-full flex-1 items-center justify-center overflow-hidden bg-black"
-                  style={{ backgroundColor: 'var(--substrate-surface-bed, #000000)' }}
                   onMouseEnter={handleMouseEnter}
                 >
                   <ViewportGridComp
@@ -222,12 +217,6 @@ function ViewerLayout({
                     side="right"
                     isExpanded={!rightPanelClosedState}
                     servicesManager={servicesManager}
-                    className={hasSubstrateAgentPanel ? 'substrate-host-panel-shell' : undefined}
-                    contentClassName={
-                      hasSubstrateAgentPanel
-                        ? 'substrate-host-panel-content min-h-0 flex-1 overflow-hidden'
-                        : undefined
-                    }
                     {...rightPanelProps}
                   />
                 </ResizablePanel>

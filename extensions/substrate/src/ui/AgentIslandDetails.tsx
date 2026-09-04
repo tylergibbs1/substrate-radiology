@@ -132,7 +132,7 @@ export function AgentIslandDetails({
               <input
                 type="checkbox"
                 checked={askBeforeChanges}
-                onChange={event => autonomy.setLevel(event.target.checked ? 'assist' : 'full-prep')}
+                onChange={event => autonomy.setLevel(event.target.checked ? 'assist' : 'auto-prep')}
                 style={{ width: 16, height: 16, margin: 0, accentColor: token['ink/low'] }}
               />
               <span>Ask before changes</span>

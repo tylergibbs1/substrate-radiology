@@ -4,7 +4,6 @@ jest.mock('./ui/mount', () => ({
   mountAgentIsland: jest.fn(),
   unmountAgentIsland: jest.fn(),
 }));
-jest.mock('./engine/prep', () => ({ runFullPrep: jest.fn() }));
 jest.mock('./engine/proposals', () => ({ clearProposals: jest.fn() }));
 jest.mock('./engine/report', () => ({ clearReport: jest.fn() }));
 jest.mock('./engine/autonomy', () => ({
@@ -25,7 +24,6 @@ import substrateExtension, { enterSubstrateMode, exitSubstrateMode } from './ind
 import { buildViewerTools } from './webmcp/viewerTools';
 import { register } from './webmcp/spec';
 import { mountAgentIsland } from './ui/mount';
-import { runFullPrep } from './engine/prep';
 import { autonomy } from './engine/autonomy';
 
 const tool = {
@@ -76,7 +74,7 @@ describe('Substrate mode lifecycle', () => {
     expect(substrateExtension.exitSubstrateMode).toBe(exitSubstrateMode);
   });
 
-  it('keeps prep running when WebMCP is unsupported', async () => {
+  it('reports unsupported WebMCP without changing the viewer', async () => {
     (register as jest.Mock).mockResolvedValue({
       ok: false,
       registered: [],
@@ -92,8 +90,8 @@ describe('Substrate mode lifecycle', () => {
     );
     expect(mountAgentIsland).toHaveBeenCalledTimes(1);
     const sessionSignal = (buildViewerTools as jest.Mock).mock.calls[0][0].sessionSignal;
-    expect(runFullPrep).toHaveBeenCalledWith([tool], sessionSignal);
     expect(sessionSignal.aborted).toBe(false);
+    expect(deps.commandsManager.runCommand).not.toHaveBeenCalled();
   });
 
   it('discards registration completion after mode exit', async () => {
@@ -112,9 +110,9 @@ describe('Substrate mode lifecycle', () => {
 
     expect(mountAgentIsland).not.toHaveBeenCalled();
     expect(panelService.addPanel).not.toHaveBeenCalled();
-    expect(runFullPrep).toHaveBeenCalledTimes(1);
-    const prepSignal = (runFullPrep as jest.Mock).mock.calls[0][1] as AbortSignal;
-    expect(prepSignal.aborted).toBe(true);
+    const viewerSignal = (buildViewerTools as jest.Mock).mock.calls[0][0]
+      .sessionSignal as AbortSignal;
+    expect(viewerSignal.aborted).toBe(true);
   });
 
   it('keeps a rapid re-entry isolated from the previous registration', async () => {
@@ -142,11 +140,12 @@ describe('Substrate mode lifecycle', () => {
       second.deps.servicesManager.services,
       expect.any(Number)
     );
-    expect(runFullPrep).toHaveBeenCalledTimes(2);
-    const firstPrepSignal = (runFullPrep as jest.Mock).mock.calls[0][1] as AbortSignal;
-    const secondPrepSignal = (runFullPrep as jest.Mock).mock.calls[1][1] as AbortSignal;
-    expect(firstPrepSignal.aborted).toBe(true);
-    expect(secondPrepSignal.aborted).toBe(false);
+    const firstViewerSignal = (buildViewerTools as jest.Mock).mock.calls[0][0]
+      .sessionSignal as AbortSignal;
+    const secondViewerSignal = (buildViewerTools as jest.Mock).mock.calls[1][0]
+      .sessionSignal as AbortSignal;
+    expect(firstViewerSignal.aborted).toBe(true);
+    expect(secondViewerSignal.aborted).toBe(false);
   });
 
   it('cancels panel activation and pending autonomy decisions on exit', async () => {
@@ -165,15 +164,14 @@ describe('Substrate mode lifecycle', () => {
     jest.useRealTimers();
   });
 
-  it('starts prep before WebMCP registration settles', async () => {
+  it('does not run viewer commands while WebMCP registration settles', async () => {
     (register as jest.Mock).mockReturnValue(new Promise(() => undefined));
     const { deps } = dependencies();
 
     enterSubstrateMode(deps);
     await settle();
 
-    const sessionSignal = (buildViewerTools as jest.Mock).mock.calls[0][0].sessionSignal;
-    expect(runFullPrep).toHaveBeenCalledWith([tool], sessionSignal);
     expect(mountAgentIsland).not.toHaveBeenCalled();
+    expect(deps.commandsManager.runCommand).not.toHaveBeenCalled();
   });
 });

@@ -24,9 +24,9 @@ const INSTRUCTIONS_KEY = 'substrate.standing-instructions';
 const DEFAULT_INSTRUCTIONS = ['When I label a target, suggest it on the prior.'];
 
 function storedLevel(): AutonomyLevel {
-  if (typeof window === 'undefined') return 'full-prep';
+  if (typeof window === 'undefined') return 'auto-prep';
   const value = window.localStorage.getItem(LEVEL_KEY);
-  return value === 'assist' || value === 'auto-prep' || value === 'full-prep' ? value : 'full-prep';
+  return value === 'assist' || value === 'auto-prep' ? value : 'auto-prep';
 }
 
 function storedInstructions(): string[] {
