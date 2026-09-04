@@ -119,6 +119,8 @@ The suite contains 52 tests across registration compatibility, lifecycle cancell
 
 OHIF is the pre-existing application. Substrate is the WebMCP extension created during the OpenAI WebMCP Challenge submission period. The first Substrate commit is dated September 2, 2026, and the subsequent commit history records the implementation through September 3, 2026.
 
+This repository preserves the upstream OHIF commit history. As a result, many commits predate the challenge. All Substrate work began during the submission period with commit `1446baea2d` on September 2, 2026.
+
 The new work includes:
 
 - `extensions/substrate/`: WebMCP tools, workflow engine, agent panel, report review, signing, and tests
