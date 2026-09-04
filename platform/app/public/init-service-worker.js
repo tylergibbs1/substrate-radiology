@@ -1,9 +1,3 @@
-navigator.serviceWorker.getRegistrations().then(function (registrations) {
-  for (let registration of registrations) {
-    registration.unregister();
-  }
-});
-
 // https://developers.google.com/web/tools/workbox/modules/workbox-window
 // All major browsers that support service worker also support native JavaScript
 // modules, so it's perfectly fine to serve this code to any browsers
@@ -22,6 +16,20 @@ if ('function' === typeof importScripts) {
   if (supportsServiceWorker && isNotLocalDevelopment) {
     const swFileLocation = (window.PUBLIC_URL || '/') + 'sw.js';
     const wb = new Workbox(swFileLocation);
+    let isReloadingForUpdate = false;
+
+    // A generated worker calls skipWaiting() and clientsClaim(), so it can take
+    // control without ever entering Workbox's `waiting` state. Reload whenever
+    // a newly installed worker takes control; otherwise the current document
+    // can remain on the previous precached app shell until the user closes it.
+    wb.addEventListener('controlling', () => {
+      if (isReloadingForUpdate) {
+        return;
+      }
+
+      isReloadingForUpdate = true;
+      window.location.reload();
+    });
 
     // Add an event listener to detect when the registered
     // service worker has installed but is waiting to activate.
@@ -37,13 +45,6 @@ if ('function' === typeof importScripts) {
       // that a user can either accept or reject.
       // const prompt = createUIPrompt({
       //  onAccept: async () => {
-      // Assuming the user accepted the update, set up a listener
-      // that will reload the page as soon as the previously waiting
-      // service worker has taken control.
-      wb.addEventListener('controlling', event => {
-        window.location.reload();
-      });
-
       // Send a message telling the service worker to skip waiting.
       // This will trigger the `controlling` event handler above.
       // Note: for this to work, you have to add a message
@@ -57,6 +58,6 @@ if ('function' === typeof importScripts) {
       // });
     });
 
-    wb.register();
+    wb.register().then(registration => registration && registration.update());
   }
 }
