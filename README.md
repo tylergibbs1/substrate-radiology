@@ -2,7 +2,7 @@
 
 Substrate adds a browser-native agent workflow to the stock [OHIF medical imaging viewer](https://ohif.org/). A radiologist reads the images. An agent uses WebMCP to arrange studies, navigate, apply display presets, organize human measurements, compare timepoints, and draft traceable findings.
 
-**Research use only. Not for clinical diagnosis. Not FDA cleared.**
+**This application is for research use only. Do not use it for clinical diagnosis. The FDA has not cleared it.**
 
 ## Try the live demo
 
@@ -12,15 +12,15 @@ Prompt the connected agent in natural language:
 
 > Put this chest CT next to last year's, use lung windows for both, and take both to slice 80.
 
-The agent should call `get_context` before changing the viewer. You don't need to name tool calls in normal use.
+The agent must call `get_context` before it changes the viewer. You do not need to name the tools during normal use.
 
 [Watch the demo video on YouTube](https://youtu.be/WcEev2iTRRo).
 
 ## Why WebMCP fits radiology workflow
 
-Medical image viewers contain state that screenshots and generic browser automation cannot reliably recover: loaded studies, series identifiers, viewport assignments, slice positions, display settings, measurements, and report provenance. WebMCP exposes that state as a bounded tool surface instead of asking an agent to infer it from pixels or click coordinates.
+Medical image viewers contain state that browser automation cannot reliably recover. This state includes studies, series, viewports, slices, display settings, measurements, and reports. WebMCP exposes this state through a bounded tool surface. The agent does not infer the state from pixels or click coordinates.
 
-This split lets the radiologist keep the diagnostic work while the agent handles surrounding workflow. The agent can prepare and organize the reading, but it cannot interpret an image, invent a finding, accept its own proposal, sign a report, or export one.
+This split lets the radiologist keep the diagnostic work while the agent handles the surrounding workflow. The agent can prepare and organize the reading. It cannot interpret an image, invent a finding, accept a proposal, sign, or export.
 
 ## What the person and agent do together
 
@@ -55,7 +55,7 @@ Substrate registers ten tools through `document.modelContext.registerTool` durin
 | `draft_report` | Write | Assemble findings from accepted evidence |
 | `request_signature` | Write | Open human signature review |
 
-No tool returns pixel data or accepts coordinates selected by the agent. `propose_measurement` requires an existing human measurement and matching DICOM frame of reference. `draft_report` only cites accepted evidence. `request_signature` returns `pending`; only the radiologist can sign or export.
+No tool returns pixel data or accepts coordinates selected by the agent. `propose_measurement` requires an existing human measurement and matching DICOM frame of reference. `draft_report` only cites accepted evidence. `request_signature` returns `pending`. Only the radiologist can sign or export.
 
 Read the [implementation and safety details](SUBSTRATE.md) for the complete contract.
 
@@ -100,7 +100,7 @@ OHIF_PORT=3010 yarn dev:substrate
 
 Open `http://localhost:3010/viewer?StudyInstanceUIDs=1.2.840.113654.2.55.302957049620416109572494829313844992999`.
 
-ChatGPT's in-app browser supports WebMCP. In Chrome 149 or later, enable `chrome://flags/#enable-webmcp-testing` and restart Chrome.
+ChatGPT's in-app browser supports WebMCP. If you use Chrome 149 or later, enable `chrome://flags/#enable-webmcp-testing`. Then restart Chrome.
 
 ## Verify the implementation
 
@@ -137,6 +137,6 @@ Do not upload protected health information. The hosted application exists only f
 
 ## License and upstream project
 
-The repository uses the [MIT License](LICENSE). OHIF remains copyright Open Health Imaging Foundation and its contributors. Substrate modifications are distributed under the same license.
+The repository uses the [MIT License](LICENSE). OHIF remains copyright Open Health Imaging Foundation and its contributors. The same license applies to the Substrate modifications.
 
 This repository derives from [OHIF/Viewers](https://github.com/OHIF/Viewers). See OHIF's [documentation](https://docs.ohif.org/) for the upstream viewer architecture and features.
