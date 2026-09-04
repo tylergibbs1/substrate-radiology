@@ -60,6 +60,8 @@ export type DicomWebConfig = {
   supportsFuzzyMatching?: boolean;
   /** Whether the server supports wildcard matching */
   supportsWildcard?: boolean;
+  /** Optional DICOM tags to request from study-level QIDO responses. */
+  studyQueryIncludeFields?: string[];
   /** Whether the server supports the native DICOM model */
   supportsNativeDICOMModel?: boolean;
   /** Whether to enable request tag */
@@ -166,7 +168,7 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
             dicomWebConfig.omitQuotationForMultipartRequest
           );
           return {
-            ...authorizationHeader,
+            ...authorizationHeader
             Accept: formattedAcceptHeader,
           };
         } else {
@@ -175,7 +177,7 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
           // which the server expects Accept: application/dicom+json will still include that in the
           // header.
           return {
-            ...authorizationHeader
+            ...authorizationHeader,
           };
         }
       };
@@ -217,6 +219,7 @@ function createDicomWebApi(dicomWebConfig: DicomWebConfig, servicesManager) {
             mapParams(origParams, {
               supportsFuzzyMatching: dicomWebConfig.supportsFuzzyMatching,
               supportsWildcard: dicomWebConfig.supportsWildcard,
+              studyQueryIncludeFields: dicomWebConfig.studyQueryIncludeFields,
             }) || {};
 
           const results = await qidoSearch(qidoDicomWebClient, undefined, undefined, mappedParams);

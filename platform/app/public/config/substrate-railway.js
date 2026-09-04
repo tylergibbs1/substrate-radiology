@@ -36,6 +36,9 @@ window.config = {
         enableStudyLazyLoad: true,
         supportsFuzzyMatching: false,
         supportsWildcard: true,
+        // Study Description + Modalities in Study. Do not request the
+        // series-level Modality tag from Orthanc's /studies endpoint.
+        studyQueryIncludeFields: ['00081030', '00080061'],
         dicomUploadEnabled: false,
         bulkDataURI: {
           enabled: true,

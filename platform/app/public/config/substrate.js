@@ -66,6 +66,9 @@ window.config = {
         qidoRoot: '/pacs/dicom-web',
         wadoRoot: '/pacs/dicom-web',
         qidoSupportsIncludeField: false,
+        // Study Description + Modalities in Study. Do not request the
+        // series-level Modality tag from Orthanc's /studies endpoint.
+        studyQueryIncludeFields: ['00081030', '00080061'],
         imageRendering: 'wadors',
         thumbnailRendering: 'wadors',
         dicomUploadEnabled: true,

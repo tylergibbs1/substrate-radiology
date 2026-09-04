@@ -24,6 +24,7 @@
  */
 import { DICOMWeb, utils } from '@ohif/core';
 import { sortStudySeries } from '@ohif/core/src/utils/sortStudy';
+import getStudyQueryIncludeFields from './getStudyQueryIncludeFields';
 
 const { getString, getName, getModalities } = DICOMWeb;
 
@@ -148,11 +149,10 @@ function mapParams(params, options = {}) {
   if (!params) {
     return;
   }
-  const commaSeparatedFields = [
-    '00081030', // Study Description
-    '00080060', // Modality
-    // Add more fields here if you want them in the result
-  ].join(',');
+  // Preserve OHIF's defaults unless a data source explicitly supplies the
+  // study-level fields its QIDO server supports. Orthanc correctly warns when
+  // the series-level Modality tag (0008,0060) is requested from /studies.
+  const commaSeparatedFields = getStudyQueryIncludeFields(options.studyQueryIncludeFields);
 
   const useWildcard =
     params?.disableWildcard !== undefined ? !params.disableWildcard : options.supportsWildcard;
