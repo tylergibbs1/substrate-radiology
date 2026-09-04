@@ -730,6 +730,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
         const resolved: {
           seriesUid: string;
           displaySetUid: string;
+          imageCount: number;
           orientation: string;
           preset: string;
         }[] = [];
@@ -796,6 +797,8 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
           resolved.push({
             seriesUid,
             displaySetUid: match.displaySetInstanceUID,
+            imageCount:
+              match.imageIds?.length || match.instances?.length || match.numImageFrames || 0,
             orientation,
             preset,
           });
@@ -923,9 +926,10 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
 
         const finalState = viewportGrid?.getState();
         const finalIds = finalState ? [...finalState.viewports.keys()] : [];
+        const finalPositions = new Map<string, number>();
         for (const [index, entry] of resolved.entries()) {
           const viewportId = finalIds[index];
-          if (!viewportId || (!entry.orientation && !entry.preset)) continue;
+          if (!viewportId) continue;
           await viewportReady(cornerstone, viewportId);
           ensureActive(signal);
           if (entry.orientation) {
@@ -961,6 +965,26 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
               );
             }
           }
+          if (token['hang/initial-stack-position'] === 'midpoint' && entry.imageCount > 1) {
+            const midpoint = Math.floor((entry.imageCount - 1) / 2);
+            const viewport = cornerstone?.getCornerstoneViewport(viewportId);
+            if (viewport?.getCurrentImageIdIndex?.() !== midpoint) {
+              deps.commandsManager.runCommand('jumpToImage', {
+                imageIndex: midpoint,
+                viewport: { id: viewportId },
+              });
+            }
+            const resultingIndex = viewport?.getCurrentImageIdIndex?.();
+            if (Number.isFinite(resultingIndex) && resultingIndex !== midpoint) {
+              await restoreLayout();
+              return refuse(
+                'POSITION_NOT_APPLIED',
+                `Pane ${index + 1} did not reach its opening stack position.`,
+                'The prior layout was restored; wait for the viewer and try again.'
+              );
+            }
+            finalPositions.set(viewportId, midpoint);
+          }
         }
         const placed = resolved.every(
           (entry, index) =>
@@ -984,6 +1008,7 @@ export function buildViewerTools(deps: ViewerDependencies): WebMcpTool[] {
             series_uid: entry.seriesUid,
             orientation: entry.orientation,
             preset: entry.preset,
+            slice_index: finalPositions.get(finalIds[index] ?? '') ?? null,
           })),
         };
       }

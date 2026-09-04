@@ -673,10 +673,11 @@ otherwise disturb the study. WebMCP registration has its own cancellation
 lifecycle so cleaning up a partial tool surface cannot abort viewer work.
 
 When a multi-image current/prior comparison is hung, the hang places each
-stack at its metadata midpoint once using OHIF's native initial-image option.
-This avoids presenting an empty boundary frame without inspecting pixels or
-claiming an anatomical landmark. After that opening placement, scroll belongs
-entirely to the reader unless they explicitly ask the agent to navigate.
+stack at its metadata midpoint once using OHIF's native initial-image option
+and verifies the resulting index before it reports success. This avoids
+presenting an empty boundary frame without inspecting pixels or claiming an
+anatomical landmark. After that opening placement, scroll belongs entirely to
+the reader unless they explicitly ask the agent to navigate.
 
 Details > Preferences contains one exception: `Ask before changes`. Off means
 Full prep. On means Assist. At Assist, the question appears inline in the

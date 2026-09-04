@@ -211,6 +211,14 @@ describe('S1-S7 WebMCP acceptance sequence', () => {
         viewportOptions: { initialImageOptions: { preset: 'middle', useOnce: true } },
       }),
     ]);
+    expect(runCommand).toHaveBeenCalledWith('jumpToImage', {
+      imageIndex: 78,
+      viewport: { id: 'viewport-current' },
+    });
+    expect(runCommand).toHaveBeenCalledWith('jumpToImage', {
+      imageIndex: 74,
+      viewport: { id: 'viewport-prior' },
+    });
 
     // S2 — keyboard/voice intent becomes one deterministic navigation command
     // per step. No pixels or image-derived landmark crosses the tool boundary.
