@@ -148,8 +148,10 @@ by-hand and prepared runs, and report review supports sentence keep/remove,
 threaded replies, exact-sentence revision, template changes, version restore,
 signature staleness, and human-only export.
 
-**Deferred by scope.** Deployment and the public judging URL are intentionally
-not part of this local completion pass.
+**Deployed.** The public judging build runs at
+[`substrate.grayhavenindustries.com`](https://substrate.grayhavenindustries.com/viewer?StudyInstanceUIDs=1.2.840.113654.2.55.302957049620416109572494829313844992999).
+Railway hosts the static viewer behind a read-only DICOMweb edge and a private
+Orthanc service. The hosted study requires no account.
 
 ## Acceptance
 
